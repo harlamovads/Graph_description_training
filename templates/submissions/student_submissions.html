@@ -1,0 +1,56 @@
+{% extends "layout.html" %}
+
+{% block title %}My Submissions - Language Learning App{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4">My Submissions</h1>
+    
+    {% if submissions %}
+        <div class="row">
+            {% for submission in submissions %}
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100 shadow-sm">
+                        {% if submission.task.image_url %}
+                            <img src="{{ submission.task.image_url }}" class="card-img-top" alt="{{ submission.task.title }}" style="height: 140px; object-fit: cover;">
+                        {% endif %}
+                        <div class="card-body">
+                            <h5 class="card-title">{{ submission.task.title }}</h5>
+                            <div class="mb-2">
+                                <span class="badge {% if submission.status == 'reviewed' %}bg-success{% else %}bg-info{% endif %}">
+                                    {{ submission.status|capitalize }}
+                                </span>
+                            </div>
+                            <p class="card-text text-muted small">
+                                Submitted on: {{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}
+                            </p>
+                            {% if submission.reviewed_at %}
+                                <p class="card-text text-muted small">
+                                    Reviewed on: {{ submission.reviewed_at.strftime('%Y-%m-%d %H:%M') }}
+                                </p>
+                            {% endif %}
+                        </div>
+                        <div class="card-footer bg-transparent">
+                            <a href="{{ url_for('submissions_bp.view_submission', submission_id=submission.id) }}" class="btn btn-outline-primary btn-sm">
+                                View Details
+                            </a>
+                            {% if submission.status == 'reviewed' %}
+                                <a href="{{ url_for('exercises_bp.create_exercise', submission_id=submission.id) }}" class="btn btn-outline-secondary btn-sm">
+                                    Create Exercise
+                                </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-info">
+            <p class="mb-0">You haven't submitted any assignments yet.</p>
+        </div>
+        <a href="{{ url_for('tasks_bp.get_tasks') }}" class="btn btn-primary">
+            <i class="bi bi-list-check me-2"></i>View Available Tasks
+        </a>
+    {% endif %}
+</div>
+{% endblock %}

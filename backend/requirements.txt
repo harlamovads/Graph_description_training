@@ -1,0 +1,16 @@
+# requirements.txt
+Flask==2.2.3
+Flask-SQLAlchemy==3.0.3
+Flask-JWT-Extended==4.4.4
+Flask-Cors==3.0.10
+SQLAlchemy==2.0.4
+psycopg2-binary==2.9.5
+python-dotenv==0.21.1
+boto3==1.26.84
+Werkzeug==2.2.3
+marshmallow==3.19.0
+torch==1.13.1
+transformers==4.28.1
+nltk==3.8.1
+numpy==1.24.3
+tqdm==4.65.0

@@ -1,0 +1,153 @@
+{% extends "layout.html" %}
+
+{% block title %}Review Submission - Language Learning App{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="{{ url_for('submissions_bp.get_submission', submission_id=submission.id) }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-2"></i>Back to Submission
+    </a>
+</div>
+<h1 class="mb-4">Review Submission</h1>
+
+<div class="card shadow mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2>{{ submission.task.title }}</h2>
+            <div class="text-muted">
+                <small>Submitted by: {{ submission.student.username }}</small>
+                <br>
+                <small>On: {{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</small>
+            </div>
+        </div>
+        
+        <hr>
+        
+        <div class="row">
+            <div class="col-md-8">
+                <h5>Student's Response</h5>
+                <div class="p-3 bg-light rounded mb-3">
+                    {{ submission.content|safe }}
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                {% if submission.task.image_url %}
+                    <div class="card mb-3">
+                        <img src="{{ submission.task.image_url }}" class="card-img-top" alt="{{ submission.task.title }}" style="max-height: 200px; object-fit: contain;">
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="card-title mb-0">Grammar Analysis</h5>
+    </div>
+    <div class="card-body">
+        {% if submission.analysis_result %}
+            <p class="mb-3">The neural network detected {{ submission.analysis_result.total_errors }} potential errors in the text.</p>
+            
+            {% if submission.analysis_html %}
+                <div class="analysis-container bg-light p-3 rounded">
+                    {{ submission.analysis_html|safe }}
+                </div>
+            {% else %}
+                {% for sentence in submission.analysis_result.sentences %}
+                    <div class="mb-3 p-3 bg-light rounded">
+                        <p class="mb-2">{{ sentence.content }}</p>
+                        
+                        {% if sentence.errors|length > 0 %}
+                            <h6 class="mt-2">Errors Found:</h6>
+                            <ul class="mb-0">
+                                {% for error in sentence.errors %}
+                                    <li>
+                                        <strong>{{ error.type }}</strong>: {{ error.original }}
+                                        {% if error.suggestion %} → {{ error.suggestion }}{% endif %}
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            <p class="text-success mb-0">No errors detected</p>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% else %}
+            <p class="text-muted">No analysis available for this submission.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card shadow">
+    <div class="card-header bg-primary text-white">
+        <h5 class="card-title mb-0">Provide Feedback</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted mb-3">Add your feedback for the student's submission</p>
+        
+        <form id="reviewForm" method="POST" action="{{ url_for('submissions_bp.review_submission', submission_id=submission.id) }}">
+            <div class="mb-3">
+                <textarea class="form-control" id="feedback" name="feedback" rows="6" required placeholder="Enter your feedback here..."></textarea>
+            </div>
+            
+            <div class="d-flex justify-content-end">
+                <a href="{{ url_for('submissions_bp.get_submission', submission_id=submission.id) }}" class="btn btn-outline-secondary me-2">Cancel</a>
+                <button type="submit" class="btn btn-primary" id="submitBtn">
+                    <i class="bi bi-send me-2"></i>Submit Feedback
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const reviewForm = document.getElementById('reviewForm');
+        const submitBtn = document.getElementById('submitBtn');
+        
+        reviewForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const feedback = document.getElementById('feedback').value;
+            if (!feedback.trim()) {
+                alert('Please provide feedback before submitting');
+                return;
+            }
+            
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Submitting...';
+            
+            fetch(reviewForm.action, {
+                method: 'POST',
+                body: JSON.stringify({ feedback }),
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.message) {
+                    // Success
+                    window.location.href = `/submissions/{{ submission.id }}`;
+                } else if (data.error) {
+                    // Error
+                    alert('Error: ' + data.error);
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="bi bi-send me-2"></i>Submit Feedback';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Failed to submit feedback. Please try again.');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="bi bi-send me-2"></i>Submit Feedback';
+            });
+        });
+    });
+</script>
+{% endblock %}

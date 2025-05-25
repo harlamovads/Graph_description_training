@@ -1,0 +1,125 @@
+{% extends "layout.html" %}
+
+{% block title %}Database Tasks - Language Learning App{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Database Tasks</h1>
+        <a href="{{ url_for('tasks_bp.tasks_list') }}" class="btn btn-outline-primary">
+            <i class="bi bi-arrow-left me-2"></i>Back to Tasks
+        </a>
+    </div>
+    
+    <p class="text-muted mb-4">
+        These are predefined tasks from the database that can be used by any teacher.
+    </p>
+    
+    {% if tasks %}
+        <div class="row">
+            {% for task in tasks %}
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100 shadow-sm">
+                        {% if task.image_url %}
+                            <img src="{{ task.image_url }}" class="card-img-top" alt="{{ task.title }}" style="height: 140px; object-fit: cover;">
+                        {% endif %}
+                        <div class="card-body">
+                            <h5 class="card-title">{{ task.title }}</h5>
+                            <div class="mb-2">
+                                <span class="badge bg-info">Database Task</span>
+                            </div>
+                            <p class="card-text">{{ task.description[:120] }}{% if task.description|length > 120 %}...{% endif %}</p>
+                        </div>
+                        <div class="card-footer bg-transparent">
+                            <a href="{{ url_for('tasks_bp.view_task', task_id=task.id) }}" class="btn btn-outline-primary btn-sm">
+                                View Details
+                            </a>
+                            {% if current_user.role == 'teacher' %}
+                                <button class="btn btn-primary btn-sm" onclick="assignTask('{{ task.id }}')">
+                                    Assign Task
+                                </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-info">
+            <p class="mb-0">No database tasks available.</p>
+        </div>
+    {% endif %}
+</div>
+
+<!-- Assignment Modal -->
+{% if current_user.role == 'teacher' %}
+<div class="modal fade" id="assignModal" tabindex="-1" aria-labelledby="assignModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="assignModalLabel">Assign Task</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="assignForm" method="POST">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="student_ids" class="form-label">Select Students</label>
+                        <select class="form-select" id="student_ids" name="student_ids[]" multiple required>
+                            <!-- Students will be loaded dynamically -->
+                        </select>
+                        <div class="form-text">Hold Ctrl/Cmd to select multiple students</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="due_date" class="form-label">Due Date (Optional)</label>
+                        <input type="date" class="form-control" id="due_date" name="due_date">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Assign Task</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if current_user.role == 'teacher' %}
+<script>
+    // Function to load students for assignment
+    async function loadStudents() {
+        try {
+            const response = await fetch('/api/students');
+            const data = await response.json();
+            
+            const selectElement = document.getElementById('student_ids');
+            selectElement.innerHTML = '';
+            
+            data.students.forEach(student => {
+                const option = document.createElement('option');
+                option.value = student.id;
+                option.textContent = student.username;
+                selectElement.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading students:', error);
+        }
+    }
+    
+    // Function to handle assignment modal
+    function assignTask(taskId) {
+        // Set form action
+        document.getElementById('assignForm').action = `/tasks/${taskId}/assign`;
+        
+        // Load students
+        loadStudents();
+        
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('assignModal'));
+        modal.show();
+    }
+</script>
+{% endif %}
+{% endblock %}

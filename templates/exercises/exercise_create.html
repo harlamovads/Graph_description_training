@@ -1,0 +1,289 @@
+{% extends "layout.html" %}
+
+{% block title %}Create Exercise - Language Learning App{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="{{ url_for('submissions_bp.get_submission', submission_id=submission.id) }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-2"></i>Back to Submission
+    </a>
+</div>
+
+<h1 class="mb-4">Create Exercise</h1>
+
+<div class="card shadow mb-4">
+    <div class="card-body">
+        <h2>{{ submission.task.title }}</h2>
+        <hr>
+        
+        <div class="d-flex align-items-center mb-3">
+            <span class="text-muted me-2">Based on submission from:</span>
+            <span class="badge bg-secondary">{{ submission.submitted_at.strftime('%Y-%m-%d') }}</span>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-8">
+                <h5>Select a Sentence</h5>
+                <p class="text-muted small mb-3">Choose a sentence with errors from your submission to create an exercise.</p>
+                
+                <div class="mb-3">
+                    <textarea id="selectedSentence" class="form-control" rows="4" placeholder="Enter or paste a sentence with grammatical errors..."></textarea>
+                </div>
+                
+                <div class="d-flex gap-2 mb-4">
+                    <button id="addSentenceBtn" class="btn btn-primary">
+                        <i class="bi bi-plus-circle me-2"></i>Add Sentence
+                    </button>
+                    <button id="generateBtn" class="btn btn-success" disabled>
+                        <i class="bi bi-lightning me-2"></i>Generate Exercise
+                    </button>
+                </div>
+                
+                <div id="sentencesContainer">
+                    <h5>Selected Sentences</h5>
+                    
+                    <div id="noSentencesMsg" class="text-muted mb-3">
+                        No sentences added yet. Add sentences above.
+                    </div>
+                    
+                    <div id="selectedSentencesList" class="list-group mb-3">
+                        <!-- Selected sentences will be added here -->
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                {% if submission.task.image_url %}
+                    <div class="card mb-3">
+                        <img src="{{ submission.task.image_url }}" class="card-img-top" alt="{{ submission.task.title }}" style="max-height: 200px; object-fit: contain;">
+                    </div>
+                    <p class="text-muted small">
+                        This image will be included with the exercise to provide context for the sentences.
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="text-end">
+    <a href="{{ url_for('submissions_bp.get_submission', submission_id=submission.id) }}" class="btn btn-outline-secondary me-2">Cancel</a>
+    <button id="finalGenerateBtn" class="btn btn-primary" disabled>
+        <i class="bi bi-lightning me-2"></i>Generate Exercise
+    </button>
+</div>
+
+<!-- Content Analysis Modal -->
+<div class="modal fade" id="contentModal" tabindex="-1" aria-labelledby="contentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="contentModalLabel">Select Sentences from Submission</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3">Click on any sentence below to select it:</p>
+                
+                <div id="contentParagraphs" class="bg-light p-3 rounded">
+                    {{ submission.content|safe }}
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Modal -->
+<div class="modal fade" id="loadingModal" data-bs-backdrop="static" tabindex="-1" aria-labelledby="loadingModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body text-center p-4">
+                <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <h5>Generating Exercise...</h5>
+                <p class="text-muted">Please wait while we analyze the sentences and create your exercise.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const selectedSentence = document.getElementById('selectedSentence');
+        const addSentenceBtn = document.getElementById('addSentenceBtn');
+        const generateBtn = document.getElementById('generateBtn');
+        const finalGenerateBtn = document.getElementById('finalGenerateBtn');
+        const noSentencesMsg = document.getElementById('noSentencesMsg');
+        const selectedSentencesList = document.getElementById('selectedSentencesList');
+        const contentModal = new bootstrap.Modal(document.getElementById('contentModal'));
+        const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+        
+        // Extract sentences from submission content
+        const sentences = [];
+        const contentText = document.getElementById('contentParagraphs').textContent.trim();
+        
+        // Simple sentence extraction (could be improved)
+        const sentenceRegex = /[^.!?]+[.!?]+/g;
+        let match;
+        while ((match = sentenceRegex.exec(contentText)) !== null) {
+            sentences.push(match[0].trim());
+        }
+        
+        // Handle content modal paragraph clicks to select sentences
+        document.getElementById('contentParagraphs').addEventListener('click', function(e) {
+            // Find closest sentence to click point
+            const rect = this.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+            
+            // This is a simplistic approach - in a real app, you'd want more sophisticated text selection
+            let closestSentence = '';
+            let minDistance = Infinity;
+            
+            for (const sentence of sentences) {
+                // In a real implementation, calculate actual distance to text
+                // For now, just choose the first sentence as an example
+                if (minDistance > 1000) {
+                    closestSentence = sentence;
+                    minDistance = 1000;
+                }
+            }
+            
+            if (closestSentence) {
+                selectedSentence.value = closestSentence;
+                contentModal.hide();
+            }
+        });
+        
+        // Show modal button
+        const showContentBtn = document.createElement('button');
+        showContentBtn.className = 'btn btn-outline-secondary mt-2 w-100';
+        showContentBtn.innerHTML = '<i class="bi bi-list-ul me-2"></i>Browse Submission Content';
+        showContentBtn.onclick = function() {
+            contentModal.show();
+        };
+        selectedSentence.parentNode.appendChild(showContentBtn);
+        
+        // Add sentence button
+        addSentenceBtn.addEventListener('click', function() {
+            const sentence = selectedSentence.value.trim();
+            if (!sentence) {
+                alert('Please enter a sentence first');
+                return;
+            }
+            
+            // Check if sentence already exists
+            const existingSentences = Array.from(selectedSentencesList.querySelectorAll('.sentence-text'));
+            for (const existing of existingSentences) {
+                if (existing.textContent === sentence) {
+                    alert('This sentence is already in the list');
+                    return;
+                }
+            }
+            
+            // Add sentence to the list
+            addSentenceToList(sentence);
+            
+            // Clear input
+            selectedSentence.value = '';
+            
+            // Show generate buttons if we have sentences
+            updateButtonsState();
+        });
+        
+        // Generate exercise button
+        function generateExercise() {
+            // Get all sentences
+            const sentences = Array.from(selectedSentencesList.querySelectorAll('.sentence-text')).map(el => el.textContent);
+            
+            if (sentences.length === 0) {
+                if (selectedSentence.value.trim()) {
+                    // Use the current sentence in the input
+                    sentences.push(selectedSentence.value.trim());
+                } else {
+                    alert('Please add at least one sentence first');
+                    return;
+                }
+            }
+            
+            // Show loading modal
+            loadingModal.show();
+            
+            // Send request to generate exercise
+            fetch('{{ url_for("exercises_bp.generate_exercise", submission_id=submission.id) }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    sentence: sentences[0], // Use first sentence (API only supports one for now)
+                    image_url: '{{ submission.task.image_url }}'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.exercise && data.exercise.id) {
+                    // Redirect to the exercise page
+                    window.location.href = '/exercises/' + data.exercise.id;
+                } else if (data.error) {
+                    loadingModal.hide();
+                    alert('Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                loadingModal.hide();
+                console.error('Error:', error);
+                alert('Failed to generate exercise. Please try again.');
+            });
+        }
+        
+        generateBtn.addEventListener('click', generateExercise);
+        finalGenerateBtn.addEventListener('click', generateExercise);
+        
+        // Helper functions
+        function addSentenceToList(sentence) {
+            const item = document.createElement('div');
+            item.className = 'list-group-item';
+            
+            const itemContent = document.createElement('div');
+            itemContent.className = 'd-flex justify-content-between align-items-center';
+            
+            const sentenceText = document.createElement('div');
+            sentenceText.className = 'sentence-text';
+            sentenceText.textContent = sentence;
+            
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'btn btn-sm btn-outline-danger';
+            deleteBtn.innerHTML = '<i class="bi bi-trash"></i>';
+            deleteBtn.onclick = function() {
+                item.remove();
+                updateButtonsState();
+            };
+            
+            itemContent.appendChild(sentenceText);
+            itemContent.appendChild(deleteBtn);
+            item.appendChild(itemContent);
+            
+            selectedSentencesList.appendChild(item);
+            noSentencesMsg.style.display = 'none';
+        }
+        
+        function updateButtonsState() {
+            const hasSentences = selectedSentencesList.children.length > 0 || selectedSentence.value.trim() !== '';
+            generateBtn.disabled = !hasSentences;
+            finalGenerateBtn.disabled = !hasSentences;
+            
+            if (selectedSentencesList.children.length > 0) {
+                noSentencesMsg.style.display = 'none';
+            } else {
+                noSentencesMsg.style.display = 'block';
+            }
+        }
+    });
+</script>
+{% endblock %}

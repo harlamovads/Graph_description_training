@@ -1,0 +1,72 @@
+{% extends "layout.html" %}
+
+{% block title %}Register - Language Learning App{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card shadow mt-5">
+            <div class="card-body">
+                <h2 class="text-center mb-4">Register</h2>
+                <form method="POST" action="{{ url_for('auth_bp.register_process') }}">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="username" name="username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email Address</label>
+                        <input type="email" class="form-control" id="email" name="email" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="password" name="password" required>
+                        <div class="form-text">Password must be at least 8 characters long.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="role" class="form-label">Role</label>
+                        <select class="form-select" id="role" name="role" required>
+                            <option value="student">Student</option>
+                            <option value="teacher">Teacher</option>
+                        </select>
+                    </div>
+                    <div class="mb-3" id="invitation-field" style="display: none;">
+                        <label for="invitation_code" class="form-label">Invitation Code (Optional)</label>
+                        <input type="text" class="form-control" id="invitation_code" name="invitation_code">
+                        <div class="form-text">Enter the invitation code provided by your teacher.</div>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">Register</button>
+                    </div>
+                </form>
+                <hr>
+                <div class="text-center">
+                    <p>Already have an account? <a href="{{ url_for('auth_bp.login_page') }}">Login</a></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const roleSelect = document.getElementById('role');
+        const invitationField = document.getElementById('invitation-field');
+        
+        roleSelect.addEventListener('change', function() {
+            if (this.value === 'student') {
+                invitationField.style.display = 'block';
+            } else {
+                invitationField.style.display = 'none';
+                document.getElementById('invitation_code').value = '';
+            }
+        });
+        
+        // Initial check
+        if (roleSelect.value === 'student') {
+            invitationField.style.display = 'block';
+        }
+    });
+</script>
+{% endblock %}

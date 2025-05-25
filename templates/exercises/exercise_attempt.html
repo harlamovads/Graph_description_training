@@ -1,0 +1,169 @@
+{% extends "layout.html" %}
+
+{% block title %}Exercise - Language Learning App{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="{{ url_for('exercises_bp.get_exercises') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-2"></i>Back to Exercises
+    </a>
+</div>
+
+<h1 class="mb-4">Exercise</h1>
+
+<div class="card shadow mb-4">
+    <div class="card-body">
+        <h2>{{ exercise.title }}</h2>
+        
+        <div class="row">
+            <div class="col-md-8">
+                <h5 class="mt-3">Instructions</h5>
+                <p>{{ exercise.instructions }}</p>
+                <p class="text-muted small">
+                    Correct the grammatical errors in each sentence. There may be multiple errors per sentence.
+                </p>
+            </div>
+            
+            <div class="col-md-4">
+                {% if exercise.image_url %}
+                    <div class="card">
+                        <img src="{{ exercise.image_url }}" class="card-img-top" alt="{{ exercise.title }}" style="max-height: 200px; object-fit: contain;">
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow">
+    <div class="card-header bg-primary text-white">
+        <h5 class="card-title mb-0">Sentences to Correct</h5>
+    </div>
+    <div class="card-body">
+        <form id="exerciseForm">
+            {% for sentence in exercise.sentences %}
+                <div class="mb-4">
+                    <h6>Original Sentence {{ loop.index }}:</h6>
+                    <div class="p-3 bg-light rounded mb-3">
+                        <p class="mb-0">{{ sentence.content }}</p>
+                    </div>
+                    
+                    <h6>Your Correction:</h6>
+                    <textarea 
+                        class="form-control exercise-response" 
+                        rows="2" 
+                        data-sentence-id="{{ sentence.id }}" 
+                        placeholder="Enter your corrected version..."
+                        required
+                    ></textarea>
+                </div>
+                {% if not loop.last %}
+                    <hr>
+                {% endif %}
+            {% endfor %}
+            
+            <div class="d-flex justify-content-end mt-4">
+                <a href="{{ url_for('exercises_bp.get_exercises') }}" class="btn btn-outline-secondary me-2">Cancel</a>
+                <button type="submit" class="btn btn-primary" id="submitBtn">
+                    <i class="bi bi-check-circle me-2"></i>Submit Answers
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Loading Modal -->
+<div class="modal fade" id="loadingModal" data-bs-backdrop="static" tabindex="-1" aria-labelledby="loadingModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body text-center p-4">
+                <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <h5>Analyzing Your Responses...</h5>
+                <p class="text-muted">Please wait while our neural network checks your corrections.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const exerciseForm = document.getElementById('exerciseForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+        
+        exerciseForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Check if all responses are filled
+            const responses = document.querySelectorAll('.exercise-response');
+            let emptyResponses = 0;
+            
+            responses.forEach(response => {
+                if (!response.value.trim()) {
+                    emptyResponses++;
+                    response.classList.add('is-invalid');
+                } else {
+                    response.classList.remove('is-invalid');
+                }
+            });
+            
+            if (emptyResponses > 0) {
+                alert(`Please complete all ${emptyResponses} remaining sentences`);
+                return;
+            }
+            
+            // Collect responses
+            const responseData = {};
+            responses.forEach(response => {
+                responseData[response.dataset.sentenceId] = response.value.trim();
+            });
+            
+            // Show loading modal
+            loadingModal.show();
+            submitBtn.disabled = true;
+            
+            // Submit responses
+            fetch('{{ url_for("exercises_bp.submit_exercise_attempt", exercise_id=exercise.id) }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    responses: responseData
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                loadingModal.hide();
+                
+                if (data.score !== undefined) {
+                    // Success - redirect to results page
+                    window.location.href = '/exercises/{{ exercise.id }}/results';
+                } else if (data.error) {
+                    alert('Error: ' + data.error);
+                    submitBtn.disabled = false;
+                }
+            })
+            .catch(error => {
+                loadingModal.hide();
+                console.error('Error:', error);
+                alert('Failed to submit exercise. Please try again.');
+                submitBtn.disabled = false;
+            });
+        });
+        
+        // Add input event listeners to remove invalid class when user types
+        document.querySelectorAll('.exercise-response').forEach(input => {
+            input.addEventListener('input', function() {
+                if (this.value.trim()) {
+                    this.classList.remove('is-invalid');
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

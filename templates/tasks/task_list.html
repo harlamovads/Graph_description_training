@@ -1,0 +1,166 @@
+{% extends "layout.html" %}
+
+{% block title %}Tasks - Language Learning App{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Tasks</h1>
+    {% if current_user.role == 'teacher' %}
+        <a href="{{ url_for('tasks_bp.create_task') }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle me-2"></i>Create Task
+        </a>
+    {% endif %}
+</div>
+
+<ul class="nav nav-tabs mb-4" id="taskTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="all-tab" data-bs-toggle="tab" data-bs-target="#all-tasks" type="button" role="tab" aria-controls="all-tasks" aria-selected="true">All Tasks</button>
+    </li>
+    {% if current_user.role == 'teacher' %}
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="custom-tab" data-bs-toggle="tab" data-bs-target="#custom-tasks" type="button" role="tab" aria-controls="custom-tasks" aria-selected="false">My Custom Tasks</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="database-tab" data-bs-toggle="tab" data-bs-target="#database-tasks" type="button" role="tab" aria-controls="database-tasks" aria-selected="false">Database Tasks</button>
+        </li>
+    {% else %}
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="pending-tab" data-bs-toggle="tab" data-bs-target="#pending-tasks" type="button" role="tab" aria-controls="pending-tasks" aria-selected="false">Pending Tasks</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="completed-tab" data-bs-toggle="tab" data-bs-target="#completed-tasks" type="button" role="tab" aria-controls="completed-tasks" aria-selected="false">Completed Tasks</button>
+        </li>
+    {% endif %}
+</ul>
+
+<div class="tab-content" id="taskTabsContent">
+    <!-- All Tasks Tab -->
+    <div class="tab-pane fade show active" id="all-tasks" role="tabpanel" aria-labelledby="all-tab">
+        <div class="row">
+            {% if tasks %}
+                {% for task in tasks %}
+                    <div class="col-md-4 mb-4">
+                        <div class="card h-100 shadow-sm">
+                            {% if task.image_url %}
+                                <img src="{{ task.image_url }}" class="card-img-top" alt="{{ task.title }}" style="height: 140px; object-fit: cover;">
+                            {% endif %}
+                            <div class="card-body">
+                                <h5 class="card-title">{{ task.title }}</h5>
+                                {% if current_user.role == 'student' %}
+                                    <div class="mb-2">
+                                        {% set completed = task.id in completed_task_ids %}
+                                        <span class="badge {% if completed %}bg-success{% else %}bg-warning{% endif %}">
+                                            {% if completed %}Completed{% else %}Pending{% endif %}
+                                        </span>
+                                    </div>
+                                {% endif %}
+                                <p class="card-text">{{ task.description[:120] }}{% if task.description|length > 120 %}...{% endif %}</p>
+                            </div>
+                            <div class="card-footer bg-transparent d-flex justify-content-between">
+                                <a href="{{ url_for('tasks_bp.get_task', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">View Details</a>
+                                {% if current_user.role == 'student' %}
+                                    {% if task.id not in completed_task_ids %}
+                                        <a href="{{ url_for('submissions_bp.create_submission', assignment_id=task.id) }}" class="btn btn-sm btn-primary">Complete Task</a>
+                                    {% else %}
+                                        <a href="{{ url_for('submissions_bp.get_submission', submission_id=submission_map[task.id]) }}" class="btn btn-sm btn-outline-success">View Submission</a>
+                                    {% endif %}
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="col-12 text-center py-5">
+                    <p class="text-muted">No tasks found</p>
+                    <p class="text-muted small">
+                        {% if current_user.role == 'teacher' %}
+                            Create your first task by clicking the 'Create Task' button above.
+                        {% else %}
+                            No tasks have been assigned to you yet.
+                        {% endif %}
+                    </p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Custom/Pending Tasks Tab -->
+    <div class="tab-pane fade" id="{% if current_user.role == 'teacher' %}custom-tasks{% else %}pending-tasks{% endif %}" role="tabpanel" aria-labelledby="{% if current_user.role == 'teacher' %}custom-tab{% else %}pending-tab{% endif %}">
+        <div class="row">
+            {% if current_user.role == 'teacher' %}
+                {% set filtered_tasks = tasks|selectattr('is_from_database', 'equalto', false)|list %}
+            {% else %}
+                {% set filtered_tasks = tasks|rejectattr('id', 'in', completed_task_ids)|list %}
+            {% endif %}
+            
+            {% if filtered_tasks %}
+                {% for task in filtered_tasks %}
+                    <div class="col-md-4 mb-4">
+                        <div class="card h-100 shadow-sm">
+                            {% if task.image_url %}
+                                <img src="{{ task.image_url }}" class="card-img-top" alt="{{ task.title }}" style="height: 140px; object-fit: cover;">
+                            {% endif %}
+                            <div class="card-body">
+                                <h5 class="card-title">{{ task.title }}</h5>
+                                <p class="card-text">{{ task.description[:120] }}{% if task.description|length > 120 %}...{% endif %}</p>
+                            </div>
+                            <div class="card-footer bg-transparent d-flex justify-content-between">
+                                <a href="{{ url_for('tasks_bp.get_task', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">View Details</a>
+                                {% if current_user.role == 'student' %}
+                                    <a href="{{ url_for('submissions_bp.create_submission', assignment_id=task.id) }}" class="btn btn-sm btn-primary">Complete Task</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="col-12 text-center py-5">
+                    <p class="text-muted">No {% if current_user.role == 'teacher' %}custom{% else %}pending{% endif %} tasks found</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Database/Completed Tasks Tab -->
+    <div class="tab-pane fade" id="{% if current_user.role == 'teacher' %}database-tasks{% else %}completed-tasks{% endif %}" role="tabpanel" aria-labelledby="{% if current_user.role == 'teacher' %}database-tab{% else %}completed-tab{% endif %}">
+        <div class="row">
+            {% if current_user.role == 'teacher' %}
+                {% set filtered_tasks = tasks|selectattr('is_from_database', 'equalto', true)|list %}
+            {% else %}
+                {% set filtered_tasks = tasks|selectattr('id', 'in', completed_task_ids)|list %}
+            {% endif %}
+            
+            {% if filtered_tasks %}
+                {% for task in filtered_tasks %}
+                    <div class="col-md-4 mb-4">
+                        <div class="card h-100 shadow-sm">
+                            {% if task.image_url %}
+                                <img src="{{ task.image_url }}" class="card-img-top" alt="{{ task.title }}" style="height: 140px; object-fit: cover;">
+                            {% endif %}
+                            <div class="card-body">
+                                <h5 class="card-title">{{ task.title }}</h5>
+                                {% if current_user.role == 'student' %}
+                                    <div class="mb-2">
+                                        <span class="badge bg-success">Completed</span>
+                                    </div>
+                                {% endif %}
+                                <p class="card-text">{{ task.description[:120] }}{% if task.description|length > 120 %}...{% endif %}</p>
+                            </div>
+                            <div class="card-footer bg-transparent d-flex justify-content-between">
+                                <a href="{{ url_for('tasks_bp.get_task', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">View Details</a>
+                                {% if current_user.role == 'student' %}
+                                    <a href="{{ url_for('submissions_bp.get_submission', submission_id=submission_map[task.id]) }}" class="btn btn-sm btn-outline-success">View Submission</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="col-12 text-center py-5">
+                    <p class="text-muted">No {% if current_user.role == 'teacher' %}database{% else %}completed{% endif %} tasks found</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

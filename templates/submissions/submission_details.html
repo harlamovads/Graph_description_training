@@ -1,0 +1,140 @@
+{% extends "layout.html" %}
+
+{% block title %}Submission Details - Language Learning App{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="{{ url_for('tasks_bp.get_tasks') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-2"></i>Back
+    </a>
+</div>
+
+<h1 class="mb-4">Submission Details</h1>
+
+<div class="card shadow mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2>{{ submission.task.title }}</h2>
+            <span class="badge {% if submission.status == 'reviewed' %}bg-success{% else %}bg-info{% endif %} fs-6">
+                {{ submission.status|capitalize }}
+            </span>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-8">
+                <div class="text-muted mb-2">
+                    <small>Submitted on: {{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                    {% if submission.reviewed_at %}
+                        <br>
+                        <small>Reviewed on: {{ submission.reviewed_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                    {% endif %}
+                </div>
+                
+                <hr>
+                
+                <h5>Original Task</h5>
+                <p class="mb-3">{{ submission.task.description }}</p>
+            </div>
+            
+            <div class="col-md-4">
+                {% if submission.task.image_url %}
+                    <div class="card mb-3">
+                        <img src="{{ submission.task.image_url }}" class="card-img-top" alt="{{ submission.task.title }}" style="max-height: 200px; object-fit: contain;">
+                    </div>
+                {% endif %}
+                
+                <div class="d-grid gap-2">
+                    {% if current_user.role == 'teacher' %}
+                        <a href="{{ url_for('submissions_bp.review_submission', submission_id=submission.id) }}" class="btn btn-primary {% if submission.status == 'reviewed' %}disabled{% endif %}">
+                            <i class="bi bi-pencil-square me-2"></i>
+                            {% if submission.status == 'reviewed' %}Already Reviewed{% else %}Review Submission{% endif %}
+                        </a>
+                    {% else %}
+                        {% if submission.status == 'reviewed' %}
+                            <a href="{{ url_for('exercises_bp.generate_exercise', submission_id=submission.id) }}" class="btn btn-secondary">
+                                <i class="bi bi-diagram-3 me-2"></i>Create Exercise
+                            </a>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="card-title mb-0">Student's Response</h5>
+    </div>
+    <div class="card-body">
+        <div class="p-3 bg-light rounded">
+            {{ submission.content|safe }}
+        </div>
+    </div>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="card-title mb-0">Grammar Analysis</h5>
+    </div>
+    <div class="card-body">
+        {% if submission.analysis_result %}
+            <p class="mb-3">The neural network detected {{ submission.analysis_result.total_errors }} potential errors in the text.</p>
+            
+            {% if submission.analysis_html %}
+                <div class="analysis-container bg-light p-3 rounded">
+                    {{ submission.analysis_html|safe }}
+                </div>
+            {% else %}
+                <div class="accordion" id="analysisAccordion">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="headingOne">
+                            <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="true" aria-controls="collapseOne">
+                                View Detailed Analysis
+                            </button>
+                        </h2>
+                        <div id="collapseOne" class="accordion-collapse collapse show" aria-labelledby="headingOne">
+                            <div class="accordion-body">
+                                {% for sentence in submission.analysis_result.sentences %}
+                                    <div class="mb-3 p-3 bg-light rounded">
+                                        <p class="mb-2">{{ sentence.content }}</p>
+                                        
+                                        {% if sentence.errors|length > 0 %}
+                                            <h6 class="mt-2">Errors Found:</h6>
+                                            <ul class="mb-0">
+                                                {% for error in sentence.errors %}
+                                                    <li>
+                                                        <strong>{{ error.type }}</strong>: {{ error.original }}
+                                                        {% if error.suggestion %} → {{ error.suggestion }}{% endif %}
+                                                    </li>
+                                                {% endfor %}
+                                            </ul>
+                                        {% else %}
+                                            <p class="text-success mb-0">No errors detected</p>
+                                        {% endif %}
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+        {% else %}
+            <p class="text-muted">No analysis available for this submission.</p>
+        {% endif %}
+    </div>
+</div>
+
+{% if submission.teacher_feedback %}
+    <div class="card shadow">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">Teacher's Feedback</h5>
+        </div>
+        <div class="card-body">
+            <div class="p-3 bg-light rounded">
+                <p class="mb-0">{{ submission.teacher_feedback }}</p>
+            </div>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}

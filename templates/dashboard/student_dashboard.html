@@ -1,0 +1,112 @@
+{% extends "layout.html" %}
+
+{% block title %}Student Dashboard - Language Learning App{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Student Dashboard</h1>
+
+<div class="row">
+    <!-- Pending Tasks Card -->
+    <div class="col-md-8 mb-4">
+        <div class="card shadow h-100">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">Pending Tasks</h5>
+            </div>
+            <div class="card-body">
+                {% if pending_tasks %}
+                    <div class="list-group">
+                        {% for task in pending_tasks %}
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1">{{ task.title }}</h6>
+                                    <p class="mb-1 text-truncate">{{ task.description[:100] }}{% if task.description|length > 100 %}...{% endif %}</p>
+                                </div>
+                                <a href="{{ url_for('submissions_bp.create_submission', assignment_id=task.id) }}" class="btn btn-sm btn-primary">Complete</a>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center py-4">
+                        <p class="text-muted">No pending tasks. Great job!</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Summary Card -->
+    <div class="col-md-4 mb-4">
+        <div class="card shadow h-100">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">Your Progress</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-4">
+                    <p class="text-muted mb-1">Tasks Completed</p>
+                    <div class="d-flex align-items-center">
+                        <h3 class="text-primary me-2">{{ submissions|length }}</h3>
+                        <span class="text-muted">out of {{ submissions|length + pending_tasks|length }} assigned</span>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <p class="text-muted mb-1">Exercises Completed</p>
+                    <h3 class="text-secondary">{{ completed_exercises|length }}</h3>
+                </div>
+                <div class="d-grid">
+                    <a href="{{ url_for('exercises_bp.get_exercises') }}" class="btn btn-outline-primary">
+                        <i class="bi bi-diagram-3 me-2"></i>Practice with Exercises
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Submissions Card -->
+<div class="card shadow mb-4">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">Recent Submissions</h5>
+        <span class="badge bg-light text-primary">{{ submissions|length }} Total</span>
+    </div>
+    <div class="card-body">
+        {% if submissions %}
+            <div class="row">
+                {% for submission in submissions[:3] %}
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100">
+                            {% if submission.task.image_url %}
+                                <img src="{{ submission.task.image_url }}" class="card-img-top" alt="{{ submission.task.title }}" style="height: 140px; object-fit: cover;">
+                            {% endif %}
+                            <div class="card-body">
+                                <h6 class="card-title">{{ submission.task.title }}</h6>
+                                <span class="badge {% if submission.status == 'reviewed' %}bg-success{% else %}bg-info{% endif %}">
+                                    {{ submission.status|capitalize }}
+                                </span>
+                                <p class="card-text small mt-2">
+                                    Submitted on: {{ submission.submitted_at.strftime('%Y-%m-%d') }}
+                                </p>
+                            </div>
+                            <div class="card-footer bg-transparent d-flex justify-content-between">
+                                <a href="{{ url_for('submissions_bp.get_submission', submission_id=submission.id) }}" class="btn btn-sm btn-outline-primary">View Details</a>
+                                {% if submission.status == 'reviewed' %}
+                                    <a href="{{ url_for('exercises_bp.generate_exercise', submission_id=submission.id) }}" class="btn btn-sm btn-outline-secondary">Create Exercise</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+            
+            {% if submissions|length > 3 %}
+                <div class="text-center mt-3">
+                    <a href="{{ url_for('submissions_bp.get_student_submissions') }}" class="btn btn-link">View All Submissions</a>
+                </div>
+            {% endif %}
+        {% else %}
+            <div class="text-center py-4">
+                <p class="text-muted">No submissions yet. Complete your first task!</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

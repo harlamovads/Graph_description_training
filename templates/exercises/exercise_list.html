@@ -1,0 +1,183 @@
+{% extends "layout.html" %}
+
+{% block title %}Exercises - Language Learning App{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+    <h1 class="me-2">
+        <i class="bi bi-diagram-3 me-2"></i>Exercises
+    </h1>
+</div>
+
+<p class="text-muted mb-4">Practice your writing skills with targeted grammar exercises</p>
+
+<ul class="nav nav-tabs mb-4" id="exerciseTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="all-tab" data-bs-toggle="tab" data-bs-target="#all-exercises" type="button" role="tab" aria-controls="all-exercises" aria-selected="true">All Exercises</button>
+    </li>
+    {% if current_user.role == 'teacher' %}
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="created-tab" data-bs-toggle="tab" data-bs-target="#created-exercises" type="button" role="tab" aria-controls="created-exercises" aria-selected="false">Created by Me</button>
+        </li>
+    {% else %}
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="not-attempted-tab" data-bs-toggle="tab" data-bs-target="#not-attempted-exercises" type="button" role="tab" aria-controls="not-attempted-exercises" aria-selected="false">Not Attempted</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="completed-tab" data-bs-toggle="tab" data-bs-target="#completed-exercises" type="button" role="tab" aria-controls="completed-exercises" aria-selected="false">Completed</button>
+        </li>
+    {% endif %}
+</ul>
+
+<div class="tab-content" id="exerciseTabsContent">
+    <!-- All Exercises Tab -->
+    <div class="tab-pane fade show active" id="all-exercises" role="tabpanel" aria-labelledby="all-tab">
+        <div class="row">
+            {% if exercises %}
+                {% for exercise in exercises %}
+                    <div class="col-md-4 mb-4">
+                        <div class="card h-100 shadow-sm">
+                            {% if exercise.image_url %}
+                                <img src="{{ exercise.image_url }}" class="card-img-top" alt="{{ exercise.title }}" style="height: 140px; object-fit: cover;">
+                            {% endif %}
+                            <div class="card-body">
+                                <h5 class="card-title">{{ exercise.title }}</h5>
+                                
+                                {% if current_user.role == 'student' and exercise.attempts %}
+                                    <div class="mb-2">
+                                        <span class="badge {% if exercise.attempts[0].score >= 70 %}bg-success{% else %}bg-warning{% endif %}">
+                                            Score: {{ exercise.attempts[0].score|round|int }}%
+                                        </span>
+                                    </div>
+                                {% endif %}
+                                
+                                <p class="card-text">{{ exercise.instructions }}</p>
+                                
+                                <p class="card-text text-muted small">
+                                    {{ exercise.sentences|length }} sentences
+                                </p>
+                            </div>
+                            <div class="card-footer bg-transparent">
+                                {% if current_user.role == 'teacher' %}
+                                    <a href="{{ url_for('exercises_bp.get_exercise_attempts', exercise_id=exercise.id) }}" class="btn btn-outline-primary btn-sm">
+                                        <i class="bi bi-bar-chart me-1"></i>View Results
+                                    </a>
+                                {% elif exercise.attempts %}
+                                    <a href="{{ url_for('exercises_bp.get_exercise_attempts', exercise_id=exercise.id) }}" class="btn btn-outline-primary btn-sm">
+                                        View Results
+                                    </a>
+                                {% else %}
+                                    <a href="{{ url_for('exercises_bp.submit_exercise_attempt', exercise_id=exercise.id) }}" class="btn btn-primary btn-sm">
+                                        <i class="bi bi-play-fill me-1"></i>Start Exercise
+                                    </a>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="col-12 text-center py-5">
+                    <p class="text-muted">No exercises found</p>
+                    <p class="text-muted small">
+                        {% if current_user.role == 'teacher' %}
+                            Create exercises from student submissions to help them practice.
+                        {% else %}
+                            Complete writing tasks to generate exercises.
+                        {% endif %}
+                    </p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Created by Me / Not Attempted Tab -->
+    <div class="tab-pane fade" id="{% if current_user.role == 'teacher' %}created-exercises{% else %}not-attempted-exercises{% endif %}" role="tabpanel" aria-labelledby="{% if current_user.role == 'teacher' %}created-tab{% else %}not-attempted-tab{% endif %}">
+        <div class="row">
+            {% if current_user.role == 'teacher' %}
+                {% set filtered_exercises = exercises|selectattr('creator_id', 'equalto', current_user.id)|list %}
+            {% else %}
+                {% set filtered_exercises = exercises|rejectattr('attempts')|list %}
+            {% endif %}
+            
+            {% if filtered_exercises %}
+                {% for exercise in filtered_exercises %}
+                    <div class="col-md-4 mb-4">
+                        <div class="card h-100 shadow-sm">
+                            {% if exercise.image_url %}
+                                <img src="{{ exercise.image_url }}" class="card-img-top" alt="{{ exercise.title }}" style="height: 140px; object-fit: cover;">
+                            {% endif %}
+                            <div class="card-body">
+                                <h5 class="card-title">{{ exercise.title }}</h5>
+                                <p class="card-text">{{ exercise.instructions }}</p>
+                                <p class="card-text text-muted small">
+                                    {{ exercise.sentences|length }} sentences
+                                </p>
+                            </div>
+                            <div class="card-footer bg-transparent">
+                                {% if current_user.role == 'teacher' %}
+                                    <a href="{{ url_for('exercises_bp.get_exercise_attempts', exercise_id=exercise.id) }}" class="btn btn-outline-primary btn-sm">
+                                        <i class="bi bi-bar-chart me-1"></i>View Results
+                                    </a>
+                                {% else %}
+                                    <a href="{{ url_for('exercises_bp.submit_exercise_attempt', exercise_id=exercise.id) }}" class="btn btn-primary btn-sm">
+                                        <i class="bi bi-play-fill me-1"></i>Start Exercise
+                                    </a>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="col-12 text-center py-5">
+                    <p class="text-muted">No {% if current_user.role == 'teacher' %}created{% else %}not attempted{% endif %} exercises found</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Completed Exercises Tab (Students only) -->
+    {% if current_user.role == 'student' %}
+        <div class="tab-pane fade" id="completed-exercises" role="tabpanel" aria-labelledby="completed-tab">
+            <div class="row">
+                {% set completed_exercises = exercises|selectattr('attempts')|list %}
+                
+                {% if completed_exercises %}
+                    {% for exercise in completed_exercises %}
+                        <div class="col-md-4 mb-4">
+                            <div class="card h-100 shadow-sm">
+                                {% if exercise.image_url %}
+                                    <img src="{{ exercise.image_url }}" class="card-img-top" alt="{{ exercise.title }}" style="height: 140px; object-fit: cover;">
+                                {% endif %}
+                                <div class="card-body">
+                                    <h5 class="card-title">{{ exercise.title }}</h5>
+                                    <div class="mb-2">
+                                        <span class="badge {% if exercise.attempts[0].score >= 70 %}bg-success{% else %}bg-warning{% endif %}">
+                                            Score: {{ exercise.attempts[0].score|round|int }}%
+                                        </span>
+                                    </div>
+                                    <p class="card-text">{{ exercise.instructions }}</p>
+                                    <p class="card-text text-muted small">
+                                        {{ exercise.sentences|length }} sentences
+                                    </p>
+                                </div>
+                                <div class="card-footer bg-transparent">
+                                    <a href="{{ url_for('exercises_bp.get_exercise_attempts', exercise_id=exercise.id) }}" class="btn btn-outline-primary btn-sm">
+                                        View Results
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="col-12 text-center py-5">
+                        <p class="text-muted">No completed exercises found</p>
+                        <p class="text-muted small">
+                            Start with one of the available exercises to practice your grammar skills.
+                        </p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

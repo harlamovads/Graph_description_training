@@ -1,0 +1,66 @@
+{% extends "layout.html" %}
+
+{% block title %}Text Analysis - Language Learning App{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4">Grammar Analysis Tool</h1>
+    
+    <div class="card shadow">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">Enter Text for Analysis</h5>
+        </div>
+        <div class="card-body">
+            <p class="text-muted mb-3">
+                Enter text below to analyze for grammatical errors. Our neural network will detect and highlight potential errors.
+            </p>
+            
+            <form method="POST" action="{{ url_for('analysis_bp.analyze_text_html') }}">
+                <div class="mb-3">
+                    <textarea class="form-control" id="text" name="text" rows="8" required placeholder="Enter text to analyze..."></textarea>
+                </div>
+                
+                <div class="text-end">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-search me-2"></i>Analyze Text
+                    </button>
+                </div>
+            </form>
+            
+            <div class="mt-4">
+                <h6>Example Sentences:</h6>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-outline-secondary btn-sm example-btn">
+                        I have went to the store yesterday.
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm example-btn">
+                        She dont like coffee.
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm example-btn">
+                        The company have announced a new policy.
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm example-btn">
+                        They was at the party last night.
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Example sentence buttons
+        const exampleBtns = document.querySelectorAll('.example-btn');
+        const textArea = document.getElementById('text');
+        
+        exampleBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                textArea.value = this.textContent.trim();
+            });
+        });
+    });
+</script>
+{% endblock %}

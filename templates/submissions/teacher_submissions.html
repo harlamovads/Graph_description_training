@@ -1,0 +1,116 @@
+{% extends "layout.html" %}
+
+{% block title %}Student Submissions - Language Learning App{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4">Student Submissions</h1>
+    
+    <div class="mb-4">
+        <div class="btn-group" role="group">
+            <a href="{{ url_for('submissions_bp.teacher_submissions') }}" class="btn btn-primary active">All Submissions</a>
+            <button type="button" class="btn btn-outline-primary" id="pendingBtn">Pending Review</button>
+            <button type="button" class="btn btn-outline-primary" id="reviewedBtn">Reviewed</button>
+        </div>
+    </div>
+    
+    {% if submissions %}
+        <div class="table-responsive">
+            <table class="table table-hover" id="submissionsTable">
+                <thead class="table-light">
+                    <tr>
+                        <th>Task</th>
+                        <th>Student</th>
+                        <th>Submitted</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for submission in submissions %}
+                        <tr data-status="{{ submission.status }}">
+                            <td>{{ submission.task.title }}</td>
+                            <td>{{ submission.student.username }}</td>
+                            <td>{{ submission.submitted_at.strftime('%Y-%m-%d') }}</td>
+                            <td>
+                                <span class="badge {% if submission.status == 'reviewed' %}bg-success{% else %}bg-info{% endif %}">
+                                    {{ submission.status|capitalize }}
+                                </span>
+                            </td>
+                            <td>
+                                <a href="{{ url_for('submissions_bp.view_submission', submission_id=submission.id) }}" class="btn btn-sm btn-outline-primary">
+                                    View
+                                </a>
+                                {% if submission.status != 'reviewed' %}
+                                    <a href="{{ url_for('submissions_bp.review_submission_page', submission_id=submission.id) }}" class="btn btn-sm btn-primary">
+                                        Review
+                                    </a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="alert alert-info">
+            <p class="mb-0">No submissions found. Assign tasks to students first.</p>
+        </div>
+        <a href="{{ url_for('tasks_bp.create_task') }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle me-2"></i>Create Task
+        </a>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const pendingBtn = document.getElementById('pendingBtn');
+        const reviewedBtn = document.getElementById('reviewedBtn');
+        const table = document.getElementById('submissionsTable');
+        
+        if (pendingBtn && reviewedBtn && table) {
+            pendingBtn.addEventListener('click', function() {
+                pendingBtn.classList.add('active');
+                pendingBtn.classList.remove('btn-outline-primary');
+                pendingBtn.classList.add('btn-primary');
+                
+                reviewedBtn.classList.remove('active');
+                reviewedBtn.classList.add('btn-outline-primary');
+                reviewedBtn.classList.remove('btn-primary');
+                
+                // Filter table rows
+                const rows = table.querySelectorAll('tbody tr');
+                rows.forEach(row => {
+                    if (row.getAttribute('data-status') === 'submitted') {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            });
+            
+            reviewedBtn.addEventListener('click', function() {
+                reviewedBtn.classList.add('active');
+                reviewedBtn.classList.remove('btn-outline-primary');
+                reviewedBtn.classList.add('btn-primary');
+                
+                pendingBtn.classList.remove('active');
+                pendingBtn.classList.add('btn-outline-primary');
+                pendingBtn.classList.remove('btn-primary');
+                
+                // Filter table rows
+                const rows = table.querySelectorAll('tbody tr');
+                rows.forEach(row => {
+                    if (row.getAttribute('data-status') === 'reviewed') {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            });
+        }
+    });
+</script>
+{% endblock %}
