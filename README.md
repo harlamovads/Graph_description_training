@@ -2,6 +2,8 @@
 
 # Language Learning Application - AI-Powered Grammar Correction & Exercise Generation
 
+```This repository is a part of the thesis "Developing a Graph Description Training Application for Russian-Speaking Learners of English" (Разработка приложения для тренировки навыков описания графиков при обучении русскоговорящих студентов английскому языку) written by Kharlamova Darya (Харламова Дарья)```
+
 ## Overview
 
 This is a comprehensive language learning application designed for teachers and students, featuring AI-powered grammar error detection and correction using state-of-the-art neural networks. The application provides an interactive platform where teachers can create writing assignments, students can submit their work for automated analysis, and personalized grammar exercises are generated based on detected errors.
