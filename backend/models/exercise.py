@@ -8,6 +8,7 @@ class Exercise(db.Model):
    
     id = db.Column(db.Integer, primary_key=True)
     creator_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    source_submission_id = db.Column(db.Integer, db.ForeignKey('submissions.id'), nullable=True)  # NEW FIELD
     title = db.Column(db.String(100), nullable=False)
     instructions = db.Column(db.Text, nullable=False)
     sentences = db.Column(db.Text, nullable=False)  # JSON string with sentences
@@ -16,10 +17,11 @@ class Exercise(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # This establishes the one-to-many relationship correctly
-    submissions = db.relationship('Submission', backref='exercise', lazy='dynamic')
+    submissions = db.relationship('Submission', backref='exercise', lazy='dynamic', foreign_keys='Submission.exercise_id')
    
     # Relationships
     creator = db.relationship('User')
+    source_submission = db.relationship('Submission', foreign_keys=[source_submission_id])  # NEW RELATIONSHIP
     attempts = db.relationship('ExerciseAttempt', backref='exercise', lazy='dynamic')
     
     def get_sentences(self):
@@ -32,6 +34,7 @@ class Exercise(db.Model):
         return {
             'id': self.id,
             'creator_id': self.creator_id,
+            'source_submission_id': self.source_submission_id,  # NEW FIELD
             'title': self.title,
             'instructions': self.instructions,
             'sentences': self.get_sentences(),
@@ -40,7 +43,6 @@ class Exercise(db.Model):
             'created_at': self.created_at.isoformat(),
             'submissions': [submission.to_dict() for submission in self.submissions]
         }
-
 
 class ExerciseAttempt(db.Model):
     __tablename__ = 'exercise_attempts'

@@ -89,6 +89,7 @@ def generate_exercise():
     
     new_exercise = Exercise(
         creator_id=current_user_id,
+        source_submission_id=submission_id,
         title=title,
         instructions=instructions,
         image_url=image_url
@@ -216,14 +217,15 @@ def get_exercises():
         # Teachers see all their exercises (draft and published)
         exercises = Exercise.query.filter_by(creator_id=current_user_id).all()
     else:  # Student
-        # Students only see published exercises from their submissions
-        submissions = Submission.query.filter_by(student_id=current_user_id).all()
-        submission_ids = [sub.id for sub in submissions]
-        # Only show published exercises
+        # Get submissions made by this student  
+        student_submissions = Submission.query.filter_by(student_id=current_user_id).all()
+        submission_ids = [sub.id for sub in student_submissions]
+
+        # Get published exercises that were created from this student's submissions
         exercises = Exercise.query.filter(
-            Exercise.id.in_(submission_ids),
+            Exercise.source_submission_id.in_(submission_ids),
             Exercise.status == 'published'
-        ).all()
+        ).all() if submission_ids else []
     
     # Add attempts for each exercise (existing logic)
     result = []
@@ -268,8 +270,13 @@ def get_exercise(exercise_id):
     
     # Check if user has access to this exercise
     if int(exercise.creator_id) != int(current_user_id):
-        submission = Submission.query.get(exercise.id)
-        if int(submission.student_id) != int(current_user_id):
+        # For students, check if this exercise was created from their submission
+        if exercise.source_submission_id:
+            submission = Submission.query.get(exercise.source_submission_id)
+            if not submission or int(submission.student_id) != int(current_user_id):
+                return jsonify({"error": "You don't have access to this exercise"}), 403
+        else:
+            # No source submission, deny access
             return jsonify({"error": "You don't have access to this exercise"}), 403
     
     return jsonify(exercise.to_dict()), 200

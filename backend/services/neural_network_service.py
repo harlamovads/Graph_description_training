@@ -13,6 +13,7 @@ import torch.nn as nn
 from flask import current_app
 import os
 import json
+import re
 
 # Download NLTK data if needed
 try:
@@ -237,15 +238,12 @@ class HuggingFaceT5GEDInference:
             return {"error": "Please enter some text."}
 
         try:
-            # Get corrected text
-            corrected_text = self.correct_text(text)
-
-            # Get detailed error spans with correct tags
-            error_spans, error_types = self._get_error_spans_detailed(text)
-        
-            # Generate HTML output
-            html_output = self.generate_html_analysis(text, corrected_text, error_spans)
-        
+            clean_text = re.sub(r'<[^>]+>', '', text).strip()
+            if not clean_text:
+                return {"error": "Please enter some text."}
+            corrected_text = self.correct_text(clean_text)
+            error_spans, error_types = self._get_error_spans_detailed(clean_text)
+            html_output = self.generate_html_analysis(clean_text, corrected_text, error_spans)
             return {
                 "corrected_text": corrected_text,
                 "error_spans": error_spans,
