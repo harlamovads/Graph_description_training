@@ -1,66 +1,61 @@
-# Multi-stage Dockerfile for Hugging Face Spaces
-FROM node:18-alpine as frontend-build
+FROM python:3.11-slim
 
-# Build React frontend
-WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm ci --only=production
-COPY frontend/ .
-RUN npm run build
-
-# Main application stage
-FROM python:3.12-slim
-
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV FLASK_APP=app.py
-ENV FLASK_ENV=production
+# Set working directory
+WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    postgresql-server-dev-all \
-    postgresql-client \
-    build-essential \
+    git \
+    wget \
     curl \
-    nginx \
-    supervisor \
+    build-essential \
+    postgresql-client \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Set work directory
-WORKDIR /app
+# Upgrade pip
+RUN pip install --upgrade pip
 
-# Copy and install Python dependencies
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir gunicorn psycopg2-binary
+# Copy backend requirements and install Python dependencies
+COPY backend/requirements.txt ./backend/
+RUN pip install --no-cache-dir -r backend/requirements.txt
 
-# Copy application code
+# Set HuggingFace cache directory
+ENV HF_HOME=/app/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
+ENV HF_DATASETS_CACHE=/app/.cache/huggingface/datasets
+
+# Create cache directories
+RUN mkdir -p /app/.cache/huggingface/transformers /app/.cache/huggingface/datasets
+
+# Clear any existing cache to avoid conflicts
+RUN rm -rf /app/.cache/huggingface/* || true
+
+# Pre-download models with better error handling and caching
+COPY docker/download_models.py /tmp/download_models.py
+RUN python /tmp/download_models.py
+
+# Copy the entire application
 COPY . .
 
-# Copy built frontend
-COPY --from=frontend-build /app/frontend/build ./backend/static
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/uploads /app/backend/uploads \
+    && chmod 755 /app/uploads /app/backend/uploads
 
-# Create necessary directories
-RUN mkdir -p uploads logs
+# Download NLTK data
+RUN python -c "import nltk; nltk.download('punkt')"
 
-# Copy configuration files
-COPY docker/nginx-hf.conf /etc/nginx/sites-available/default
-COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV FLASK_APP=app.py
+ENV FLASK_ENV=production
+ENV UPLOAD_FOLDER=/app/uploads
 
-# Create database directory for SQLite (fallback)
-RUN mkdir -p /app/data
+# Expose the port
+EXPOSE 5001
 
-# Create startup script
-COPY docker/start-hf.sh /start.sh
+# Create a startup script
+COPY docker/start.sh /start.sh
 RUN chmod +x /start.sh
 
-# Expose port 7860 (required by HF Spaces)
-EXPOSE 7860
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:7860/ || exit 1
-
-# Start the application
 CMD ["/start.sh"]

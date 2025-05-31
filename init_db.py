@@ -13,6 +13,59 @@ from backend.models.exercise import Exercise
 from backend.models.submission import Submission  # Make sure this import is correct
 from create_placeholders import create_sample_placeholders
 from sqlalchemy import text
+import json
+import os
+
+def load_sentence_database_to_flask():
+    """Load sentence database for Flask application"""
+    from backend.models.sentence import Sentence
+    from backend.models import db
+    jsonl_file = 'sentencewise_full.jsonl'
+    if not os.path.exists(jsonl_file):
+        print(f"Warning: {jsonl_file} not found. Exercise generation will be limited.")
+        return
+    
+    print("Loading sentence database...")
+    
+    try:
+        with open(jsonl_file, 'r', encoding='utf-8') as f:
+            loaded_count = 0
+            for line_num, line in enumerate(f, 1):
+                try:
+                    line = line.strip()
+                    if not line:
+                        continue
+                        
+                    data = json.loads(line)
+                    text = data.get('text', '')
+                    tags = data.get('tags', [])
+                    
+                    if not text or not tags:
+                        continue
+                    
+                    # Create sentence object
+                    sentence = Sentence(text=text)
+                    sentence.set_error_tags(tags)
+                    
+                    db.session.add(sentence)
+                    loaded_count += 1
+                    
+                    if line_num % 1000 == 0:
+                        db.session.commit()
+                        print(f"Loaded {loaded_count} sentences...")
+                        
+                except json.JSONDecodeError:
+                    continue
+                except Exception as e:
+                    print(f"Error processing line {line_num}: {e}")
+                    continue
+        
+        db.session.commit()
+        print(f"Successfully loaded {loaded_count} sentences to database")
+        
+    except Exception as e:
+        print(f"Error loading sentence database: {e}")
+
 
 def init_database():
     """Initialize database with sample data"""
@@ -231,15 +284,22 @@ def init_database():
 
         print("Creating sample submission with neural network analysis...")
         try:
-            from backend.services.neural_network_service import process_text, get_model, generate_html_output
-        
+            
+            from backend.services.neural_network_service import HuggingFaceT5GEDInference, generate_html_output
+            print('Trying to run model')
+            try:
+                model = HuggingFaceT5GEDInference()
+                print('Model loaded successfully')
+            except Exception as e:
+                print(f"Error loading HuggingFaceT5GEDInference model: {str(e)}")
+                raise
             # Create a sample submission
             sample_text = "The chart illustrates the number in percents of overweight children in Canada throughout a 20-years period from 1985 to 2005, while the table demonstrates the percentage of children doing sport exercises regulary over the period from 1990 to 2005."
         
             # Process the text with the neural network
             with app.app_context():
-                model = get_model()
-                results = process_text(sample_text, model)
+                model = HuggingFaceT5GEDInference()
+                results = model.analyze_text(sample_text)
                 html_output = generate_html_output(results)
             
                 # Create the submission - now referencing the exercise
@@ -287,7 +347,7 @@ def init_database():
         except Exception as e:
             print(f"Could not create neural network sample submission: {str(e)}")
             print("Continuing without neural network sample...")
-            print("Database initialized successfully!")
-
+        load_sentence_database_to_flask()
+        print("Database initialized successfully!")
 if __name__ == "__main__":
     init_database()

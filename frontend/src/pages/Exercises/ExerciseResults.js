@@ -1,3 +1,4 @@
+// frontend/src/pages/Exercises/ExerciseResults.js
 import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import { useParams, useNavigate, Link as RouterLink } from 'react-router-dom';
@@ -16,13 +17,18 @@ import {
   List,
   ListItem,
   ListItemText,
-  Chip
+  Chip,
+  Alert,
+  LinearProgress
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
+import StorageIcon from '@mui/icons-material/Storage';
+import PersonIcon from '@mui/icons-material/Person';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 
 import exerciseService from '../../services/exerciseService';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -63,7 +69,7 @@ const ExerciseResults = () => {
   }, [id]);
   
   if (loading) {
-    return <LoadingSpinner message="Loading results..." />;
+    return <LoadingSpinner message="Loading results..." variant="analysis" />;
   }
   
   if (error) {
@@ -78,6 +84,16 @@ const ExerciseResults = () => {
   const displayAttempts = isTeacher 
     ? attempts 
     : attempts.filter(attempt => attempt.student_id === user.id);
+  
+  // For students, get their latest attempt
+  const studentAttempt = !isTeacher ? displayAttempts[0] : null;
+  
+  // Calculate statistics
+  const databaseSentences = exercise.sentences?.filter(s => s.source === 'database').length || 0;
+  const originalSentences = exercise.sentences?.filter(s => s.source === 'original').length || 0;
+  const averageScore = displayAttempts.length > 0 
+    ? displayAttempts.reduce((sum, att) => sum + att.score, 0) / displayAttempts.length 
+    : 0;
   
   // No attempts to display
   if (displayAttempts.length === 0) {
@@ -115,9 +131,6 @@ const ExerciseResults = () => {
     );
   }
   
-  // For students, get their latest attempt
-  const studentAttempt = !isTeacher ? displayAttempts[0] : null;
-  
   return (
     <Box>
       <Box sx={{ mb: 3, display: 'flex', alignItems: 'center' }}>
@@ -128,7 +141,7 @@ const ExerciseResults = () => {
         >
           Back to Exercises
         </Button>
-        <Typography variant="h4">Exercise Results</Typography>
+        <Typography variant="h4">Enhanced Exercise Results</Typography>
       </Box>
       
       <Paper sx={{ p: 3, mb: 3 }}>
@@ -142,33 +155,82 @@ const ExerciseResults = () => {
               {exercise.instructions}
             </Typography>
             
+            {/* Exercise composition info */}
+            <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {originalSentences > 0 && (
+                <Chip 
+                  icon={<PersonIcon />}
+                  label={`${originalSentences} from submission`}
+                  color="secondary"
+                  variant="outlined"
+                  size="small"
+                />
+              )}
+              {databaseSentences > 0 && (
+                <Chip 
+                  icon={<StorageIcon />}
+                  label={`${databaseSentences} from database`}
+                  color="primary"
+                  variant="outlined"
+                  size="small"
+                />
+              )}
+            </Box>
+            
             {isTeacher ? (
               <Box sx={{ mt: 2 }}>
                 <Typography variant="h6" gutterBottom>
-                  Student Attempts: {displayAttempts.length}
+                  <TrendingUpIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
+                  Student Performance Summary
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Average Score: {
-                    displayAttempts.length > 0 
-                      ? (
-                          displayAttempts.reduce((sum, att) => sum + att.score, 0) / 
-                          displayAttempts.length
-                        ).toFixed(1) 
-                      : 'N/A'
-                  }%
-                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: '#f0f8ff' }}>
+                      <Typography variant="h4" color="primary">
+                        {displayAttempts.length}
+                      </Typography>
+                      <Typography variant="body2">Total Attempts</Typography>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: '#f0fff4' }}>
+                      <Typography variant="h4" color="success.main">
+                        {averageScore.toFixed(1)}%
+                      </Typography>
+                      <Typography variant="body2">Average Score</Typography>
+                    </Paper>
+                  </Grid>
+                </Grid>
               </Box>
             ) : studentAttempt && (
-              <Box sx={{ mt: 2, display: 'flex', alignItems: 'center' }}>
-                <Typography variant="h6" sx={{ mr: 2 }}>
-                  Your Score:
-                </Typography>
-                <Chip
-                  label={`${studentAttempt.score.toFixed(0)}%`}
-                  color={studentAttempt.score >= 70 ? 'success' : 'warning'}
-                  variant="outlined"
-                  size="medium"
-                />
+              <Box sx={{ mt: 2 }}>
+                <Alert 
+                  severity={studentAttempt.score >= 70 ? 'success' : studentAttempt.score >= 50 ? 'warning' : 'error'}
+                  sx={{ mb: 2 }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Typography variant="body1">
+                      <strong>Your Score: {studentAttempt.score.toFixed(0)}%</strong>
+                    </Typography>
+                    <Box sx={{ width: '100px' }}>
+                      <LinearProgress 
+                        variant="determinate" 
+                        value={studentAttempt.score} 
+                        color={studentAttempt.score >= 70 ? 'success' : studentAttempt.score >= 50 ? 'warning' : 'error'}
+                      />
+                    </Box>
+                  </Box>
+                </Alert>
+                
+                {studentAttempt.score >= 90 && (
+                  <Alert severity="success">🏆 Excellent work! You've mastered these grammar concepts.</Alert>
+                )}
+                {studentAttempt.score >= 70 && studentAttempt.score < 90 && (
+                  <Alert severity="info">👍 Good job! Review the feedback below to improve further.</Alert>
+                )}
+                {studentAttempt.score < 70 && (
+                  <Alert severity="warning">📚 Keep practicing! Focus on the error patterns highlighted below.</Alert>
+                )}
               </Box>
             )}
           </Grid>
@@ -191,7 +253,7 @@ const ExerciseResults = () => {
       {isTeacher ? (
         <Paper sx={{ p: 3 }}>
           <Typography variant="h6" gutterBottom>
-            All Attempts
+            All Student Attempts
           </Typography>
           <Divider sx={{ mb: 2 }} />
           
@@ -227,12 +289,56 @@ const ExerciseResults = () => {
                         <ListItemText
                           primary={
                             <Box sx={{ mb: 1 }}>
-                              <Typography variant="subtitle2">
-                                Original Sentence:
-                              </Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                                <Typography variant="subtitle2">
+                                  Original Sentence:
+                                </Typography>
+                                
+                                {/* Show sentence source */}
+                                {sentence.source === 'database' && (
+                                  <Chip 
+                                    size="small" 
+                                    icon={<StorageIcon />}
+                                    label="Database" 
+                                    color="primary" 
+                                    variant="outlined"
+                                    sx={{ ml: 1, height: 20 }}
+                                  />
+                                )}
+                                
+                                {sentence.source === 'original' && (
+                                  <Chip 
+                                    size="small" 
+                                    icon={<PersonIcon />}
+                                    label="Original" 
+                                    color="secondary" 
+                                    variant="outlined"
+                                    sx={{ ml: 1, height: 20 }}
+                                  />
+                                )}
+                              </Box>
+                              
                               <Typography variant="body2">
                                 {sentence.content}
                               </Typography>
+                              
+                              {/* Show error types */}
+                              {sentence.error_types && sentence.error_types.length > 0 && (
+                                <Box sx={{ mt: 1 }}>
+                                  <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
+                                    Target error types:
+                                  </Typography>
+                                  {sentence.error_types.map((errorType, etIdx) => (
+                                    <Chip 
+                                      key={etIdx}
+                                      label={errorType} 
+                                      size="small" 
+                                      variant="outlined"
+                                      sx={{ mr: 0.5, mb: 0.5, fontSize: '0.6rem', height: '18px' }}
+                                    />
+                                  ))}
+                                </Box>
+                              )}
                             </Box>
                           }
                           secondary={
@@ -290,7 +396,7 @@ const ExerciseResults = () => {
       ) : studentAttempt && (
         <Paper sx={{ p: 3 }}>
           <Typography variant="h6" gutterBottom>
-            Your Results
+            Your Detailed Results
           </Typography>
           <Divider sx={{ mb: 2 }} />
           
@@ -305,12 +411,56 @@ const ExerciseResults = () => {
                   <ListItemText
                     primary={
                       <Box sx={{ mb: 1 }}>
-                        <Typography variant="subtitle2">
-                          Original Sentence:
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                          <Typography variant="subtitle2">
+                            Sentence {idx + 1}:
+                          </Typography>
+                          
+                          {/* Show sentence source */}
+                          {sentence.source === 'database' && (
+                            <Chip 
+                              size="small" 
+                              icon={<StorageIcon />}
+                              label="From Database" 
+                              color="primary" 
+                              variant="outlined"
+                              sx={{ ml: 1, height: 20 }}
+                            />
+                          )}
+                          
+                          {sentence.source === 'original' && (
+                            <Chip 
+                              size="small" 
+                              icon={<PersonIcon />}
+                              label="Your Submission" 
+                              color="secondary" 
+                              variant="outlined"
+                              sx={{ ml: 1, height: 20 }}
+                            />
+                          )}
+                        </Box>
+                        
                         <Typography variant="body2">
                           {sentence.content}
                         </Typography>
+                        
+                        {/* Show error types */}
+                        {sentence.error_types && sentence.error_types.length > 0 && (
+                          <Box sx={{ mt: 1 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
+                              Focus areas:
+                            </Typography>
+                            {sentence.error_types.map((errorType, etIdx) => (
+                              <Chip 
+                                key={etIdx}
+                                label={errorType} 
+                                size="small" 
+                                variant="outlined"
+                                sx={{ mr: 0.5, mb: 0.5, fontSize: '0.6rem', height: '18px' }}
+                              />
+                            ))}
+                          </Box>
+                        )}
                       </Box>
                     }
                     secondary={
@@ -340,7 +490,7 @@ const ExerciseResults = () => {
                         {hasErrors && (
                           <Box sx={{ mt: 1 }}>
                             <Typography variant="subtitle2" color="error">
-                              Errors Found:
+                              Areas for improvement:
                             </Typography>
                             <Box component="ul" sx={{ mt: 0.5, pl: 2 }}>
                               {analysis.errors.map((error, errIdx) => (

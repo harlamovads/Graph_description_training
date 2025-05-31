@@ -159,8 +159,27 @@ def test_nn_command():
     
         print("Neural network test completed successfully!")
 
+@app.cli.command("sentence-stats")
+def sentence_stats_command():
+    """Show sentence database statistics."""
+    from load_sentence_database import show_database_stats
+    show_database_stats()
+
+@app.cli.command("clear-sentences")
+def clear_sentences_command():
+    """Clear sentence database."""
+    from load_sentence_database import clear_sentence_database
+    clear_sentence_database()
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for Docker"""
+    return jsonify({"status": "healthy"}), 200
+
 if __name__ == '__main__':
     with app.app_context():
         # Create database tables if they don't exist
         db.create_all()
-    app.run(debug=True, port=5001)
+    
+    # Make sure to bind to all interfaces, not just localhost
+    app.run(host='0.0.0.0', port=5001, debug=False)

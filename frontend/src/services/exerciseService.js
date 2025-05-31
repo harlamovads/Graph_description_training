@@ -1,3 +1,4 @@
+// frontend/src/services/exerciseService.js
 import api from '../utils/api';
 
 const exerciseService = {
@@ -43,6 +44,12 @@ const exerciseService = {
   getSentenceDatabase: async (errorType) => {
     const params = errorType ? { error_type: errorType } : {};
     const response = await api.get('/exercises/sentence-database', { params });
+    return response.data;
+  },
+
+  // Get sentence database status
+  getSentenceDatabaseStatus: async () => {
+    const response = await api.get('/exercises/sentence-database/status');
     return response.data;
   },
 

@@ -9,10 +9,10 @@ from backend.models.sentence import Sentence
 from backend.models.task import TaskAssignment, Task
 from backend.services.exercise_service import generate_exercise_sentences
 from backend.services.neural_network_service import analyze_sentence as neural_analyze_sentence
+from backend.services.neural_network_service import get_model
 
 exercises_bp = Blueprint('exercises', __name__)
 
-@exercises_bp.route('/generate', methods=['POST'])
 @exercises_bp.route('/generate', methods=['POST'])
 @jwt_required()
 def generate_exercise():
@@ -20,10 +20,6 @@ def generate_exercise():
     user = User.query.get_or_404(int(current_user_id))
     
     data = request.get_json()
-    
-    # Add debug logging
-    print(f"DEBUG: Current user ID: {current_user_id}, Role: {user.role}")
-    print(f"DEBUG: Request data: {data}")
     
     # Validate required fields
     if not data or not data.get('submission_id') or not data.get('sentence'):
@@ -33,85 +29,73 @@ def generate_exercise():
     original_sentence = data.get('sentence')
     image_url = data.get('image_url')
     
-    # Get the submission
+    # Get the submission and verify access (existing access control code)
     submission = Submission.query.get_or_404(submission_id)
-    print(f"DEBUG: Submission found - ID: {submission.id}, Student ID: {submission.student_id}")
     
-    # Check access to the submission
     if user.role == 'student':
-        print(f"DEBUG: Student access check - submission.student_id: {submission.student_id}, current_user_id: {current_user_id}")
         if submission.student_id != int(current_user_id):
             return jsonify({"error": "You don't have access to this submission"}), 403
     else:  # Teacher
-        print(f"DEBUG: Teacher access check starting...")
-        
-        # Get the assignment
         assignment = TaskAssignment.query.get(submission.assignment_id)
-        print(f"DEBUG: Assignment - ID: {assignment.id if assignment else 'None'}, Task ID: {assignment.task_id if assignment else 'None'}")
-        
         if not assignment:
             return jsonify({"error": "Assignment not found"}), 404
-            
-        # Get the task
         task = Task.query.get(assignment.task_id)
-        print(f"DEBUG: Task - ID: {task.id if task else 'None'}, Creator ID: {task.creator_id if task else 'None'}")
-        
         if not task:
             return jsonify({"error": "Task not found"}), 404
-            
-        print(f"DEBUG: Task creator check - task.creator_id: {task.creator_id}, current_user_id: {current_user_id}")
         if task.creator_id != int(current_user_id):
             return jsonify({"error": "You don't have access to this submission"}), 403
     
-    print("DEBUG: Access check passed, continuing with exercise generation...")
-    
-    # Analyze the original sentence to get error types
+    # Analyze the original sentence using enhanced neural network with correct tags
     try:
-        # Use neural network analysis
-        analysis_result = neural_analyze_sentence(original_sentence)
+        model = get_model()
+        analysis_result = model.analyze_text(original_sentence)
         
-        if 'error' in analysis_result or not analysis_result.get('errors'):
-            return jsonify({"error": "No errors found in the sentence or analysis failed"}), 400
+        if 'error' in analysis_result:
+            return jsonify({"error": "Analysis failed or no errors found in the sentence"}), 400
         
-        # Get error types
-        error_types = [error['type'] for error in analysis_result.get('errors', [])]
-    except Exception as e:
-        # Fallback to simpler analysis if neural network fails
-        from backend.services.analysis_service import analyze_sentence
-        analysis_result = analyze_sentence(original_sentence)
+        # Get error types - these are now the correct GED tags
+        error_types = analysis_result.get('error_types', [])
+        error_spans = analysis_result.get('error_spans', [])
         
-        if not analysis_result.get('errors'):
+        if not error_spans and not error_types:
             return jsonify({"error": "No errors found in the sentence"}), 400
         
-        # Get error types
-        error_types = [error['type'] for error in analysis_result.get('errors', [])]
+        print(f"DEBUG: Detected error types: {error_types}")  # Debug logging
+            
+    except Exception as e:
+        return jsonify({"error": f"Neural network analysis failed: {str(e)}"}), 500
     
-    # Find similar sentences from the database
-    similar_sentences = generate_exercise_sentences(error_types)
+    # Create enhanced exercise using sentence database with correct tags
+    from backend.services.exercise_service import create_enhanced_exercise_from_analysis
     
-    # Include original sentence
-    all_sentences = [original_sentence] + similar_sentences
+    try:
+        exercise_sentences = create_enhanced_exercise_from_analysis(
+            original_sentence, 
+            analysis_result, 
+            additional_count=4
+        )
+        
+        if len(exercise_sentences) <= 1:
+            return jsonify({"error": "Could not find enough similar sentences in database"}), 400
+        
+        print(f"DEBUG: Generated {len(exercise_sentences)} sentences")  # Debug logging
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to generate exercise sentences: {str(e)}"}), 500
     
-    # Create an exercise
-    title = f"Exercise based on submission #{submission_id}"
-    instructions = "Correct the following sentences"
+    # Create the exercise
+    title = f"Enhanced exercise based on submission #{submission_id}"
+    instructions = "Correct the following sentences focusing on the identified error types"
     
     new_exercise = Exercise(
-    creator_id=current_user_id,
-    title=title,
-    instructions=instructions,
-    image_url=image_url
+        creator_id=current_user_id,
+        title=title,
+        instructions=instructions,
+        image_url=image_url
     )
     
-    # Set sentences
-    sentences_data = []
-    for i, sentence in enumerate(all_sentences):
-        sentences_data.append({
-            'id': i,
-            'content': sentence
-        })
-    
-    new_exercise.set_sentences(sentences_data)
+    # Set sentences with enhanced metadata
+    new_exercise.set_sentences(exercise_sentences)
     
     db.session.add(new_exercise)
     db.session.commit()
@@ -120,9 +104,13 @@ def generate_exercise():
     student = User.query.get(submission.student_id)
 
     return jsonify({
-        "message": f"Exercise generated successfully for {student.username}",
+        "message": f"Enhanced exercise generated successfully for {student.username}",
         "exercise": new_exercise.to_dict(),
-        "assigned_to": student.to_dict()
+        "assigned_to": student.to_dict(),
+        "sentences_from_database": len([s for s in exercise_sentences if s.get('source') == 'database']),
+        "total_sentences": len(exercise_sentences),
+        "detected_error_types": error_types,  # Include detected error types in response
+        "database_sentences_found": len([s for s in exercise_sentences if s.get('source') == 'database']) > 0
     }), 201
 
 @exercises_bp.route('/<int:exercise_id>/attempt', methods=['POST'])
@@ -145,25 +133,45 @@ def submit_exercise_attempt(exercise_id):
     
     responses = data.get('responses')
     
-    # Analyze each response using neural network
+    # Analyze each response using enhanced neural network with correct tags
     analysis_results = {}
     correct_count = 0
     total_count = len(responses)
     
     for sentence_id, response in responses.items():
         try:
-            # Use neural network analysis
-            result = neural_analyze_sentence(response)
+            # Use enhanced neural network analysis
+            model = get_model()
+            result = model.analyze_text(response)
+            
             if 'error' in result:
                 # Fallback to simpler analysis
                 from backend.services.analysis_service import analyze_sentence
                 result = analyze_sentence(response)
+            else:
+                # Convert enhanced analysis to expected format with correct tags
+                error_spans = result.get('error_spans', [])
+                formatted_result = {
+                    'errors': []
+                }
+                
+                for span in error_spans:
+                    formatted_result['errors'].append({
+                        'type': span['type'],  # This is now correct GED tag
+                        'start': span.get('position', -1),
+                        'end': span.get('position', -1) + 1,
+                        'original': span['token'],
+                        'suggestion': ""
+                    })
+                
+                result = formatted_result
             
             analysis_results[sentence_id] = result
             
             # Count correct responses (no errors)
             if not result.get('errors') or len(result.get('errors', [])) == 0:
                 correct_count += 1
+                
         except Exception as e:
             # Fallback to simpler analysis
             from backend.services.analysis_service import analyze_sentence
@@ -410,3 +418,17 @@ def update_exercise(exercise_id):
         "exercise": exercise.to_dict()
     }), 200
 
+@exercises_bp.route('/sentence-database/status', methods=['GET'])
+@jwt_required()
+def get_sentence_database_status():
+    """Get status and statistics about the sentence database"""
+    current_user_id = int(get_jwt_identity())
+    user = User.query.get_or_404(current_user_id)
+    
+    from backend.services.exercise_service import get_sentence_database_stats
+    
+    try:
+        stats = get_sentence_database_stats()
+        return jsonify(stats), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to get database stats: {str(e)}"}), 500

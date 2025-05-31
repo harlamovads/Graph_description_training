@@ -1,3 +1,4 @@
+// frontend/src/pages/Submissions/SubmissionDetails.js
 import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useParams, useNavigate, Link as RouterLink } from 'react-router-dom';
@@ -13,12 +14,14 @@ import {
   Chip,
   Accordion,
   AccordionSummary,
-  AccordionDetails
+  AccordionDetails,
+  Alert
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EditNoteIcon from '@mui/icons-material/EditNote';
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
+import BrainIcon from '@mui/icons-material/Psychology';
 
 import { setAlert } from '../../redux/actions/uiActions';
 import submissionService from '../../services/submissionService';
@@ -55,7 +58,7 @@ const SubmissionDetails = () => {
   }, [id]);
   
   if (loading) {
-    return <LoadingSpinner message="Loading submission..." />;
+    return <LoadingSpinner message="Loading submission..." variant="analysis" />;
   }
   
   if (error) {
@@ -160,20 +163,39 @@ const SubmissionDetails = () => {
       </Paper>
       
       <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>Grammar Analysis</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+          <BrainIcon sx={{ mr: 1, color: 'primary.main' }} />
+          <Typography variant="h6">Enhanced Grammar Analysis</Typography>
+        </Box>
         
         {submission.analysis_result ? (
           <>
-            <Typography variant="body2" color="text.secondary" paragraph>
-              The neural network detected {submission.analysis_result.total_errors || 0} potential errors in the text.
-            </Typography>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Typography variant="body2">
+                Our enhanced neural network detected <strong>{submission.analysis_result.total_errors || 0}</strong> potential errors in the text.
+                {submission.analysis_result.total_errors === 0 && " Great job on your grammar!"}
+              </Typography>
+            </Alert>
             
+            {/* Use the rich HTML output from enhanced neural network */}
             {submission.analysis_result?.html_output ? (
               <Box 
-                  sx={{ mt: 2 }}
-                  dangerouslySetInnerHTML={{ __html: submission.analysis_result.html_output }}
+                sx={{ 
+                  mt: 2,
+                  '& .error-highlight': {
+                    backgroundColor: '#ffebee',
+                    padding: '2px 4px',
+                    borderRadius: '3px',
+                    border: '1px solid #f44336'
+                  },
+                  '& span[title]': {
+                    cursor: 'help'
+                  }
+                }}
+                dangerouslySetInnerHTML={{ __html: submission.analysis_result.html_output }}
               />
-          ) : (
+            ) : (
+              // Fallback to existing accordion display
               <Accordion>
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                   <Typography>View Detailed Analysis</Typography>
@@ -211,11 +233,21 @@ const SubmissionDetails = () => {
                 </AccordionDetails>
               </Accordion>
             )}
+            
+            {/* Enhanced analysis features info */}
+            <Box sx={{ mt: 3, p: 2, backgroundColor: '#f0f8ff', borderRadius: 1, border: '1px solid #b3d9ff' }}>
+              <Typography variant="body2" color="text.secondary">
+                💡 <strong>Enhanced Analysis:</strong> This submission was analyzed using our advanced T5-GED neural network 
+                with 11-tag error classification for more accurate grammar detection and correction suggestions.
+              </Typography>
+            </Box>
           </>
         ) : (
-          <Typography variant="body2" color="text.secondary">
-            No analysis available for this submission.
-          </Typography>
+          <Alert severity="warning">
+            <Typography variant="body2">
+              No analysis available for this submission. The grammar analysis may still be processing.
+            </Typography>
+          </Alert>
         )}
       </Paper>
       

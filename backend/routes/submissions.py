@@ -54,12 +54,23 @@ def create_submission():
     db.session.add(new_submission)
     db.session.commit()
     
-    # Analyze submission
-    analysis_result = analyze_submission(content)
-    
-    if analysis_result:
-        new_submission.set_analysis_result(analysis_result)
-        db.session.commit()
+    # Analyze submission with enhanced neural network
+    try:
+        analysis_result = analyze_submission(content)
+        
+        if analysis_result and 'error' not in analysis_result:
+            new_submission.set_analysis_result(analysis_result)
+            # Store the enhanced HTML output
+            if 'html_output' in analysis_result:
+                new_submission.analysis_html = analysis_result['html_output']
+            db.session.commit()
+            print("Enhanced neural network analysis completed successfully!")
+        else:
+            print(f"Neural network analysis failed: {analysis_result.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        print(f"Error during enhanced neural network analysis: {str(e)}")
+        # Continue without analysis rather than failing the submission
     
     return jsonify({
         "message": "Submission created successfully",

@@ -4,8 +4,8 @@ import nltk
 import re
 import difflib
 from transformers import (
-    AutoModelForSeq2SeqLM, 
-    AutoTokenizer, 
+    T5Tokenizer, 
+    T5ForConditionalGeneration, 
     ElectraTokenizer, 
     ElectraForTokenClassification
 )
@@ -13,7 +13,6 @@ import torch.nn as nn
 from flask import current_app
 import os
 import json
-from huggingface_hub import hf_hub_download
 
 # Download NLTK data if needed
 try:
@@ -21,221 +20,313 @@ try:
 except LookupError:
     nltk.download('punkt')
 
-class T5WithGED(nn.Module):
-    def __init__(self, model_path, ged_model_path="Zlovoblachko/4tag-electra-grammar-error-detection"):
-        super().__init__()
-        # Load T5 model and tokenizer
-        self.t5 = AutoModelForSeq2SeqLM.from_pretrained(model_path)
-        self.t5_tokenizer = AutoTokenizer.from_pretrained(model_path)
-
-        # Download and load GED components from Hugging Face
+class HuggingFaceT5GEDInference:
+    def __init__(self, model_name="Zlovoblachko/REAlEC_2step_model_testing", 
+                 ged_model_name="Zlovoblachko/11tag-electra-grammar-stage2", device=None):
+        """
+        Initialize the inference class for T5-GED model from HuggingFace
+        """
+        self.device = device if device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Correct id2label mapping from Gradio app
+        self.id2label = {
+            0: "correct",
+            1: "ORTH",
+            2: "FORM", 
+            3: "MORPH",
+            4: "DET",
+            5: "POS",
+            6: "VERB",
+            7: "NUM",
+            8: "WORD",
+            9: "PUNCT",
+            10: "RED",
+            11: "MULTIWORD",
+            12: "SPELL"
+        }
+        
+        # Load GED model and tokenizer
+        print(f"Loading GED model from HuggingFace: {ged_model_name}...")
+        self.ged_model, self.ged_tokenizer = self._load_ged_model(ged_model_name)
+        
+        # Load T5 model and tokenizer from HuggingFace
+        print(f"Loading T5 model from HuggingFace: {model_name}...")
+        self.t5_tokenizer = T5Tokenizer.from_pretrained(model_name)
+        self.t5_model = T5ForConditionalGeneration.from_pretrained(model_name)
+        self.t5_model.to(self.device)
+        
+        # Create GED encoder (copy of T5 encoder)
+        self.ged_encoder = T5ForConditionalGeneration.from_pretrained(model_name).encoder
+        self.ged_encoder.to(self.device)
+        
+        # Create gating mechanism
+        encoder_hidden_size = self.t5_model.config.d_model
+        self.gate = nn.Linear(2 * encoder_hidden_size, 1)
+        self.gate.to(self.device)
+        
+        # Try to load GED components from HuggingFace
         try:
-            # Download the ged_components.pt file from your repository
+            print("Loading GED components...")
+            from huggingface_hub import hf_hub_download
             ged_components_path = hf_hub_download(
-                repo_id=model_path,
+                repo_id=model_name,
                 filename="ged_components.pt",
                 cache_dir=None
             )
-            
-            self.ged_encoder = self.t5.encoder  # Initialize with a copy of the regular encoder
-            self.gate = nn.Linear(2 * self.t5.config.d_model, 1)
-
-            # Load saved GED components
-            ged_components = torch.load(ged_components_path, map_location=torch.device('cpu'))
+            ged_components = torch.load(ged_components_path, map_location=self.device)
             self.ged_encoder.load_state_dict(ged_components["ged_encoder"])
             self.gate.load_state_dict(ged_components["gate"])
-
-            self.has_ged = True
-            print("Loaded GED components successfully from Hugging Face")
+            print("GED components loaded successfully!")
         except Exception as e:
-            print(f"Could not load GED components: {e}")
-            print("Falling back to standard T5 model without GED integration")
-            self.has_ged = False
-
-        # Load GED model from Hugging Face
-        self.ged_model = None
-        self.ged_tokenizer = None
-        try:
-            print(f"Loading GED model from Hugging Face: {ged_model_path}")
-            self.ged_tokenizer = ElectraTokenizer.from_pretrained(ged_model_path)
-            self.ged_model = ElectraForTokenClassification.from_pretrained(ged_model_path)
-            print("Loaded GED model successfully")
-        except Exception as e:
-            print(f"Could not load GED model from {ged_model_path}: {e}")
-            print("Will use model without GED predictions")
-
-    def get_ged_predictions(self, text):
-        """Get GED predictions for a sentence."""
-        if self.ged_model is None or self.ged_tokenizer is None:
-            return None
-
-        inputs = self.ged_tokenizer(text, return_tensors="pt", truncation=True, padding=True)
-
+            print(f"Warning: Could not load GED components: {e}")
+            print("Using default initialization for GED encoder and gate.")
+        
+        # Set to evaluation mode
+        self.t5_model.eval()
+        self.ged_encoder.eval()
+        self.gate.eval()
+        
+    def _load_ged_model(self, model_name):
+        """Load GED model and tokenizer from HuggingFace"""
+        tokenizer = ElectraTokenizer.from_pretrained(model_name)
+        model = ElectraForTokenClassification.from_pretrained(model_name)
+        model.to(self.device)
+        model.eval()
+        return model, tokenizer
+    
+    def _get_ged_predictions(self, text):
+        """Get GED predictions for input text"""
+        inputs = self.ged_tokenizer(text, return_tensors="pt", truncation=True, padding=True).to(self.device)
         with torch.no_grad():
             outputs = self.ged_model(**inputs)
             logits = outputs.logits
-
         predictions = torch.argmax(logits, dim=2)
         token_predictions = predictions[0].cpu().numpy().tolist()
         tokens = self.ged_tokenizer.convert_ids_to_tokens(inputs.input_ids[0])
-
+        
         ged_tags = []
         for token, pred in zip(tokens, token_predictions):
             if token.startswith("##") or token in ["[CLS]", "[SEP]", "[PAD]"]:
                 continue
-
-            if pred == 0:
-                ged_tags.append("C")
-            elif pred == 1:
-                ged_tags.append("R")
-            elif pred == 2:
-                ged_tags.append("M")
-            elif pred == 3:
-                ged_tags.append("U")
-
-        return " ".join(ged_tags)
-
-    def extract_error_spans(self, text, ged_tags):
-        """Extract error spans from text based on GED tags."""
-        if not ged_tags:
-            return []
-
-        # Tokenize the input text
-        tokens = self.ged_tokenizer.tokenize(text)
+            ged_tags.append(str(pred))
+        
+        return " ".join(ged_tags), tokens, token_predictions
+    
+    def _get_error_spans_detailed(self, text):
+        """Extract error spans with detailed second_level_tag categories - CORRECT VERSION"""
+        ged_tags_str, tokens, predictions = self._get_ged_predictions(text)
+        
+        error_spans = []
+        error_types = []
         clean_tokens = []
         
-        # Remove special tokens and subtokens
-        for token in tokens:
+        for token, pred in zip(tokens, predictions):
             if token.startswith("##") or token in ["[CLS]", "[SEP]", "[PAD]"]:
                 continue
             clean_tokens.append(token)
-        
-        # Split GED tags string into individual tags
-        tag_list = ged_tags.split()
-        
-        # Ensure we have the same number of tokens and tags
-        min_len = min(len(clean_tokens), len(tag_list))
-        clean_tokens = clean_tokens[:min_len]
-        tag_list = tag_list[:min_len]
-        
-        # Find error spans
-        error_spans = []
-        i = 0
-        while i < len(tag_list):
-            if tag_list[i] != "C":  # If this is an error
-                error_type = tag_list[i]
-                start_idx = i
-                
-                # Find the end of this error span
-                j = i
-                while j < len(tag_list) and tag_list[j] == error_type:
-                    j += 1
-                end_idx = j
-                
-                # Extract the text of the error span
-                span_tokens = clean_tokens[start_idx:end_idx]
-                span_text = " ".join(span_tokens).replace(" ##", "")
-                
-                # Find the position in the original text
-                # This is a simple approximation
-                text_lower = text.lower()
-                span_text_lower = span_text.lower()
-                
-                # Try to find the actual position in the text
-                token_indices = list(range(start_idx, end_idx))
+            
+            if pred != 0:  # 0 is correct, others are various error types
+                error_type = self.id2label.get(pred, "OTHER")
+                error_types.append(error_type)
                 
                 error_spans.append({
-                    "text": span_text,
+                    "token": token,
                     "type": error_type,
-                    "token_indices": token_indices
+                    "position": len(clean_tokens) - 1
                 })
-                
-                i = end_idx
-            else:
-                i += 1
-                
-        return error_spans
-
-    def correct(self, text, use_ged=True, max_length=128):
-        """Correct grammatical errors in text and return the corrected text, GED tags, and error spans."""
-        # Process text with the model
-        inputs = self.t5_tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length)
-
-        if self.has_ged and use_ged and self.ged_model is not None:
-            # Get GED predictions
-            ged_tags = self.get_ged_predictions(text)
-            if ged_tags is None:
-                # Fallback to standard model if GED predictions failed
-                output_ids = self.t5.generate(
-                    input_ids=inputs.input_ids,
-                    attention_mask=inputs.attention_mask,
-                    max_length=max_length
-                )
-                corrected_text = self.t5_tokenizer.decode(output_ids[0], skip_special_tokens=True)
-                return corrected_text, "", []
-
-            # Extract error spans
-            error_spans = self.extract_error_spans(text, ged_tags)
-
-            ged_inputs = self.t5_tokenizer(ged_tags, return_tensors="pt", truncation=True, max_length=max_length)
-
-            # Encode source and GED inputs
-            src_encoder_outputs = self.t5.encoder(
-                input_ids=inputs.input_ids,
-                attention_mask=inputs.attention_mask,
-                return_dict=True
-            )
-
-            ged_encoder_outputs = self.ged_encoder(
-                input_ids=ged_inputs.input_ids,
-                attention_mask=ged_inputs.attention_mask,
-                return_dict=True
-            )
-
-            # Apply gating mechanism
-            src_hidden_states = src_encoder_outputs.last_hidden_state
-            ged_hidden_states = ged_encoder_outputs.last_hidden_state
-
-            # Ensure sequences have the same length for concatenation
-            min_len = min(src_hidden_states.size(1), ged_hidden_states.size(1))
-            combined = torch.cat([
-                src_hidden_states[:, :min_len, :],
-                ged_hidden_states[:, :min_len, :]
-            ], dim=2)
-
-            gate_scores = torch.sigmoid(self.gate(combined))
-
-            # Apply gating: λ*src_hidden + (1-λ)*ged_hidden
-            combined_hidden = (
-                gate_scores * src_hidden_states[:, :min_len, :] +
-                (1 - gate_scores) * ged_hidden_states[:, :min_len, :]
-            )
-
-            # Update encoder outputs
-            src_encoder_outputs.last_hidden_state = combined_hidden
-
-            # Generate with the enhanced encoder outputs
-            output_ids = self.t5.generate(
-                encoder_outputs=src_encoder_outputs,
+        
+        return error_spans, list(set(error_types))
+    
+    def _preprocess_inputs(self, text, max_length=128):
+        """Preprocess input text exactly as during training"""
+        # Get GED predictions
+        ged_tags, _, _ = self._get_ged_predictions(text)
+        
+        # Tokenize source text
+        src_tokens = self.t5_tokenizer(
+            text, 
+            truncation=True, 
+            max_length=max_length, 
+            return_tensors="pt"
+        )
+        
+        # Tokenize GED tags
+        ged_tokens = self.t5_tokenizer(
+            ged_tags, 
+            truncation=True, 
+            max_length=max_length, 
+            return_tensors="pt"
+        )
+        
+        return {
+            "input_ids": src_tokens.input_ids.to(self.device),
+            "attention_mask": src_tokens.attention_mask.to(self.device),
+            "ged_input_ids": ged_tokens.input_ids.to(self.device),
+            "ged_attention_mask": ged_tokens.attention_mask.to(self.device)
+        }
+    
+    def _forward_with_ged(self, input_ids, attention_mask, ged_input_ids, ged_attention_mask, max_length=200):
+        """Forward pass with GED integration"""
+        # Get source encoder outputs
+        src_encoder_outputs = self.t5_model.encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            return_dict=True
+        )
+        
+        # Get GED encoder outputs
+        ged_encoder_outputs = self.ged_encoder(
+            input_ids=ged_input_ids,
+            attention_mask=ged_attention_mask,
+            return_dict=True
+        )
+        
+        # Get hidden states
+        src_hidden_states = src_encoder_outputs.last_hidden_state
+        ged_hidden_states = ged_encoder_outputs.last_hidden_state
+        
+        # Combine hidden states
+        min_len = min(src_hidden_states.size(1), ged_hidden_states.size(1))
+        combined = torch.cat([
+            src_hidden_states[:, :min_len, :],
+            ged_hidden_states[:, :min_len, :]
+        ], dim=2)
+        
+        # Apply gating mechanism
+        gate_scores = torch.sigmoid(self.gate(combined))
+        combined_hidden = (
+            gate_scores * src_hidden_states[:, :min_len, :] +
+            (1 - gate_scores) * ged_hidden_states[:, :min_len, :]
+        )
+        
+        # Update encoder outputs
+        src_encoder_outputs.last_hidden_state = combined_hidden
+        
+        # Generate using T5 decoder
+        decoder_outputs = self.t5_model.generate(
+            encoder_outputs=src_encoder_outputs,
+            max_length=max_length,
+            do_sample=False,
+            num_beams=1
+        )
+        
+        return decoder_outputs
+    
+    def correct_text(self, text, max_length=200):
+        """Correct grammatical errors in input text"""
+        # Preprocess inputs
+        inputs = self._preprocess_inputs(text)
+        
+        # Generate correction using GED-enhanced model
+        with torch.no_grad():
+            generated_ids = self._forward_with_ged(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                ged_input_ids=inputs["ged_input_ids"],
+                ged_attention_mask=inputs["ged_attention_mask"],
                 max_length=max_length
             )
-        else:
-            # Use standard T5 model
-            output_ids = self.t5.generate(
-                input_ids=inputs.input_ids,
-                attention_mask=inputs.attention_mask,
-                max_length=max_length
-            )
-            corrected_text = self.t5_tokenizer.decode(output_ids[0], skip_special_tokens=True)
-            # No GED predictions in this case
-            ged_tags = ""
-            error_spans = []
-            return corrected_text, ged_tags, error_spans
+        
+        # Decode output
+        corrected_text = self.t5_tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+        return corrected_text
+    
+    def analyze_text(self, text):
+        """Enhanced analysis method for Flask integration"""
+        if not text.strip():
+            return {"error": "Please enter some text."}
 
-        corrected_text = self.t5_tokenizer.decode(output_ids[0], skip_special_tokens=True)
-        return corrected_text, ged_tags, error_spans
+        try:
+            # Get corrected text
+            corrected_text = self.correct_text(text)
+
+            # Get detailed error spans with correct tags
+            error_spans, error_types = self._get_error_spans_detailed(text)
+        
+            # Generate HTML output
+            html_output = self.generate_html_analysis(text, corrected_text, error_spans)
+        
+            return {
+                "corrected_text": corrected_text,
+                "error_spans": error_spans,
+                "error_types": error_types,  # Add this for compatibility
+                "html_output": html_output
+            }
+        
+        except Exception as e:
+            return {"error": f"Error during analysis: {str(e)}"}
+    
+    def generate_html_analysis(self, original, corrected, error_spans):
+        """Generate enhanced HTML analysis output with correct error types"""
+        # Create highlighted original text
+        highlighted_original = original
+        if error_spans:
+            # Sort by position in reverse to avoid index shifting
+            sorted_spans = sorted(error_spans, key=lambda x: x['position'], reverse=True)
+            
+            # Color coding for different error types - using actual GED tags
+            color_map = {
+                "ORTH": "#ffebee",      # Light red - Orthography
+                "FORM": "#e8f5e8",      # Light green - Word form
+                "MORPH": "#fff3e0",     # Light orange - Morphology
+                "DET": "#e3f2fd",       # Light blue - Determiners
+                "POS": "#f3e5f5",       # Light purple - Part of speech
+                "VERB": "#fce4ec",      # Light pink - Verb errors
+                "NUM": "#e0f2f1",       # Light teal - Number
+                "WORD": "#fff8e1",      # Light yellow - Word choice
+                "PUNCT": "#efebe9",     # Light brown - Punctuation
+                "RED": "#ffebee",       # Light red - Redundancy
+                "MULTIWORD": "#e8eaf6", # Light indigo - Multi-word
+                "SPELL": "#fcf4ff"      # Light magenta - Spelling
+            }
+            
+            # Simple highlighting
+            for span in sorted_spans:
+                token = span['token']
+                error_type = span['type']
+                
+                color = color_map.get(error_type, "#f5f5f5")
+                
+                # Simple token replacement (basic highlighting)
+                if token in highlighted_original:
+                    highlighted_original = highlighted_original.replace(
+                        token, 
+                        f"<span style='background-color: {color}; padding: 1px 3px; border-radius: 3px; margin: 0 1px;' title='{error_type}: {token}'>{token}</span>",
+                        1
+                    )
+        
+        html = f"""
+        <div style='font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background-color: #f9f9f9;'>
+            <h3 style='color: #333; margin-top: 0;'>Enhanced Grammar Analysis Results</h3>
+            
+            <div style='margin: 15px 0;'>
+                <h4 style='color: #555;'>Original Text with Error Highlighting:</h4>
+                <div style='padding: 10px; background-color: #fff; border: 1px solid #ddd; border-radius: 4px;'>{highlighted_original}</div>
+            </div>
+            
+            <div style='margin: 15px 0;'>
+                <h4 style='color: #28a745;'>Corrected Text:</h4>
+                <p style='padding: 10px; background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;'>{corrected}</p>
+            </div>
+            
+            <div style='margin: 15px 0;'>
+                <h4 style='color: #333;'>Error Summary:</h4>
+                <p style='color: #666;'>Found {len(error_spans)} potential issues</p>
+                
+                <div style='margin-top: 10px;'>
+                    <span style='display: inline-block; margin: 2px 5px; padding: 2px 8px; background-color: #ffebee; border-radius: 12px; font-size: 12px;'>ORTH - Orthography</span>
+                    <span style='display: inline-block; margin: 2px 5px; padding: 2px 8px; background-color: #e8f5e8; border-radius: 12px; font-size: 12px;'>FORM - Word Form</span>
+                    <span style='display: inline-block; margin: 2px 5px; padding: 2px 8px; background-color: #fff3e0; border-radius: 12px; font-size: 12px;'>MORPH - Morphology</span>
+                    <span style='display: inline-block; margin: 2px 5px; padding: 2px 8px; background-color: #e3f2fd; border-radius: 12px; font-size: 12px;'>DET - Determiners</span>
+                    <span style='display: inline-block; margin: 2px 5px; padding: 2px 8px; background-color: #fcf4ff; border-radius: 12px; font-size: 12px;'>SPELL - Spelling</span>
+                </div>
+            </div>
+        </div>
+        """
+        return html
 
 
+# Utility functions for finding differences
 def find_differences(source, corrected):
     """Find differences between source and corrected text."""
     diff = difflib.ndiff(source.split(), corrected.split())
@@ -261,17 +352,30 @@ def process_text(text, model):
     
     results = []
     for sentence in sentences:
-        corrected, ged_tags, error_spans = model.correct(sentence)
+        # Use the enhanced model's analyze_text method
+        analysis = model.analyze_text(sentence)
         
-        # Create result dictionary
-        result = {
-            "original": sentence,
-            "corrected": corrected,
-            "ged_tags": ged_tags,
-            "error_spans": error_spans,
-            "changes": find_differences(sentence, corrected)
-        }
-        results.append(result)
+        if "error" in analysis:
+            results.append({
+                "original": sentence,
+                "corrected": sentence,
+                "error_spans": [],
+                "error_types": [],
+                "changes": []
+            })
+        else:
+            corrected = analysis["corrected_text"]
+            error_spans = analysis["error_spans"]
+            error_types = analysis.get("error_types", [])
+            changes = find_differences(sentence, corrected)
+            
+            results.append({
+                "original": sentence,
+                "corrected": corrected,
+                "error_spans": error_spans,
+                "error_types": error_types,
+                "changes": changes
+            })
     
     return results
 
@@ -291,53 +395,38 @@ def generate_html_output(results):
         error_spans = result["error_spans"]
         
         if error_spans:
-            # Create highlighted version of original text
+            # Create highlighted version
             marked_original = original
-            replacements = []
+            
+            # Color mapping for actual GED tags
+            color_map = {
+                "ORTH": "#ffebee",      # Light red - Orthography
+                "FORM": "#e8f5e8",      # Light green - Word form
+                "MORPH": "#fff3e0",     # Light orange - Morphology
+                "DET": "#e3f2fd",       # Light blue - Determiners
+                "POS": "#f3e5f5",       # Light purple - Part of speech
+                "VERB": "#fce4ec",      # Light pink - Verb errors
+                "NUM": "#e0f2f1",       # Light teal - Number
+                "WORD": "#fff8e1",      # Light yellow - Word choice
+                "PUNCT": "#efebe9",     # Light brown - Punctuation
+                "RED": "#ffebee",       # Light red - Redundancy
+                "MULTIWORD": "#e8eaf6", # Light indigo - Multi-word
+                "SPELL": "#fcf4ff"      # Light magenta - Spelling
+            }
             
             for span in error_spans:
                 error_type = span["type"]
-                span_text = span["text"]
+                span_text = span["token"]
                 
-                # Set color and label based on error type
-                if error_type == "R":
-                    color = "#ffebee"  # Light red background
-                    border_color = "#f44336"  # Red border
-                    label = "Replace"
-                    icon = "🔄"
-                elif error_type == "M":
-                    color = "#e8f5e8"  # Light green background
-                    border_color = "#4caf50"  # Green border
-                    label = "Missing word"
-                    icon = "➕"
-                elif error_type == "U":
-                    color = "#fff3e0"  # Light orange background
-                    border_color = "#ff9800"  # Orange border
-                    label = "Unnecessary"
-                    icon = "❌"
-                else:
-                    color = "#f3e5f5"  # Light purple background
-                    border_color = "#9c27b0"  # Purple border
-                    label = "Error"
-                    icon = "⚠️"
+                color = color_map.get(error_type, "#f3e5f5")
                 
-                # Find the span in the original text and mark it
-                try:
-                    # Simple text replacement - find the span text in original
-                    span_index = marked_original.find(span_text)
-                    if span_index != -1:
-                        replacements.append((
-                            span_index,
-                            span_index + len(span_text),
-                            f"<span style='background-color: {color}; border: 1px solid {border_color}; padding: 2px 4px; border-radius: 3px; margin: 0 1px;' title='{label}: {span_text}'>{icon} {span_text}</span>"
-                        ))
-                except:
-                    continue
-            
-            # Apply replacements from end to start to avoid index shifting
-            replacements.sort(key=lambda x: x[0], reverse=True)
-            for start, end, replacement in replacements:
-                marked_original = marked_original[:start] + replacement + marked_original[end:]
+                # Find and mark the span
+                if span_text in marked_original:
+                    marked_original = marked_original.replace(
+                        span_text,
+                        f"<span style='background-color: {color}; border: 1px solid #ddd; padding: 2px 4px; border-radius: 3px; margin: 0 1px;' title='{error_type}: {span_text}'>{span_text}</span>",
+                        1
+                    )
             
             html_output += f"<div style='margin: 15px 0;'>"
             html_output += f"<p style='margin: 5px 0; font-weight: bold; color: #555;'>Original (with errors highlighted):</p>"
@@ -361,22 +450,6 @@ def generate_html_output(results):
             html_output += f"<p style='margin: 5px 0; font-weight: bold; color: #28a745;'>✅ No errors detected - sentence is correct!</p>"
             html_output += f"</div>"
         
-        # Summary of changes (if any)
-        changes = result["changes"]
-        if changes and len(error_spans) > 0:
-            html_output += f"<div style='margin-top: 15px; padding: 10px; background-color: #e9ecef; border-radius: 5px;'>"
-            html_output += f"<p style='margin: 0 0 10px 0; font-weight: bold; color: #333;'>Summary of changes:</p>"
-            html_output += "<ul style='margin: 0; padding-left: 20px;'>"
-            
-            for change in changes:
-                if change["type"] == "deletion":
-                    html_output += f"<li style='color: #dc3545; margin: 5px 0;'>Removed: <strong>'{change['text']}'</strong></li>"
-                elif change["type"] == "addition":
-                    html_output += f"<li style='color: #28a745; margin: 5px 0;'>Added: <strong>'{change['text']}'</strong></li>"
-            
-            html_output += "</ul>"
-            html_output += f"</div>"
-        
         html_output += "</div>"
     
     html_output += "</div>"
@@ -390,13 +463,13 @@ def get_model():
     """Get the model instance, creating it if it doesn't exist."""
     global _model
     if _model is None:
-        model_path = current_app.config.get('NEURAL_NETWORK_MODEL_PATH', 'Zlovoblachko/REAEC_GEC_2step_test')
-        ged_model_path = current_app.config.get('GED_MODEL_PATH', 'Zlovoblachko/4tag-electra-grammar-error-detection')
-        _model = T5WithGED(model_path, ged_model_path)
+        model_path = current_app.config.get('NEURAL_NETWORK_MODEL_PATH', 'Zlovoblachko/REAlEC_2step_model_testing')
+        ged_model_path = current_app.config.get('GED_MODEL_PATH', 'Zlovoblachko/11tag-electra-grammar-stage2')
+        _model = HuggingFaceT5GEDInference(model_path, ged_model_path)
     return _model
 
 def analyze_submission(text):
-    """Analyze a student submission using the neural network model."""
+    """Analyze a student submission using the enhanced neural network model."""
     model = get_model()
     results = process_text(text, model)
     
@@ -404,7 +477,7 @@ def analyze_submission(text):
     if isinstance(results, dict) and 'error' in results:
         return {'error': results['error']}
     
-    # Generate corrected text and analysis
+    # Generate analysis result
     analysis_result = {
         "results": results,
         "html_output": generate_html_output(results),
@@ -412,7 +485,7 @@ def analyze_submission(text):
         "sentences": []
     }
     
-    # Prepare results in a format compatible with our submission model
+    # Prepare results in format compatible with submission model
     for i, result in enumerate(results):
         sentence_analysis = {
             "id": i,
@@ -420,14 +493,14 @@ def analyze_submission(text):
             "errors": []
         }
         
-        # Convert error spans to the format expected by the submission model
+        # Convert error spans to expected format - USE CORRECT TAGS
         for span in result["error_spans"]:
             sentence_analysis["errors"].append({
-                "type": span["type"],
-                "start": -1,  # We don't have exact character positions
-                "end": -1,    # We'll update these in the frontend
-                "original": span["text"],
-                "suggestion": ""  # The model doesn't provide specific suggestions for each span
+                "type": span["type"],  # This is now the correct GED tag (ORTH, FORM, etc.)
+                "start": span.get("position", -1),
+                "end": span.get("position", -1) + 1,
+                "original": span["token"],
+                "suggestion": ""
             })
         
         analysis_result["sentences"].append(sentence_analysis)
@@ -436,31 +509,29 @@ def analyze_submission(text):
 
 
 def analyze_sentence(sentence):
-    """Analyze a single sentence using the neural network model."""
+    """Analyze a single sentence using the enhanced neural network model."""
     model = get_model()
-    result = process_text(sentence, model)
+    analysis = model.analyze_text(sentence)
     
     # Check if the model returned an error
-    if isinstance(result, dict) and 'error' in result:
-        return {'error': result['error']}
+    if 'error' in analysis:
+        return {'error': analysis['error']}
     
-    # Return the first result since we only analyzed one sentence
-    if result:
-        return {
-            "content": result[0]["original"],
-            "errors": [
-                {
-                    "type": span["type"],
-                    "start": -1,  # We don't have exact character positions
-                    "end": -1,    # We'll update these in the frontend
-                    "original": span["text"],
-                    "suggestion": ""  # The model doesn't provide specific suggestions for each span
-                }
-                for span in result[0]["error_spans"]
-            ]
-        }
-    
-    return {
+    # Return formatted result with correct tags
+    result = {
         "content": sentence,
-        "errors": []
+        "errors": [],
+        "error_types": analysis.get("error_types", [])  # Include actual error types
     }
+    
+    # Convert error spans to expected format - USE CORRECT TAGS
+    for span in analysis["error_spans"]:
+        result["errors"].append({
+            "type": span["type"],  # This is now the correct GED tag
+            "start": span.get("position", -1),
+            "end": span.get("position", -1) + 1,
+            "original": span["token"],
+            "suggestion": ""
+        })
+    
+    return result

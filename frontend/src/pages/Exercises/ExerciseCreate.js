@@ -1,3 +1,4 @@
+// frontend/src/pages/Exercises/ExerciseCreate.js
 import React, { useState, useEffect } from 'react';
 import { useDispatch } from 'react-redux';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -15,13 +16,19 @@ import {
   IconButton,
   Card,
   CardMedia,
-  Chip
+  Chip,
+  Alert,
+  CircularProgress,
+  LinearProgress
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SaveIcon from '@mui/icons-material/Save';
+import StorageIcon from '@mui/icons-material/Storage';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import WarningIcon from '@mui/icons-material/Warning';
 
 import { setAlert } from '../../redux/actions/uiActions';
 import submissionService from '../../services/submissionService';
@@ -41,31 +48,39 @@ const ExerciseCreate = () => {
   const [selectedSentence, setSelectedSentence] = useState('');
   const [sentences, setSentences] = useState([]);
   
-  useEffect(() => {
-  const fetchSubmission = async () => {
-    try {
-      setLoading(true);
-      console.log('Fetching submission with ID:', submissionId);
-      
-      const response = await submissionService.getSubmission(submissionId);
-      console.log('Submission response received:', response);
-      console.log('Response type:', typeof response);
-      console.log('Response keys:', Object.keys(response));
-      
-      setSubmission(response);
-      console.log('Submission set in state:', response);
-      
-      setLoading(false);
-    } catch (err) {
-      console.log('Error fetching submission:', err);
-      console.log('Error response:', err.response);
-      setError(err.response?.data?.error || 'Failed to load submission details');
-      setLoading(false);
-    }
-  };
+  // Database status state
+  const [databaseStatus, setDatabaseStatus] = useState(null);
+  const [loadingStatus, setLoadingStatus] = useState(true);
   
-  fetchSubmission();
-}, [submissionId]);
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch submission
+        const submissionResponse = await submissionService.getSubmission(submissionId);
+        setSubmission(submissionResponse);
+        
+        // Fetch database status
+        try {
+          const statusResponse = await exerciseService.getSentenceDatabaseStatus();
+          setDatabaseStatus(statusResponse);
+        } catch (err) {
+          console.log('Could not fetch database status:', err);
+          setDatabaseStatus({ status: 'unavailable' });
+        }
+        
+        setLoading(false);
+      } catch (err) {
+        setError(err.response?.data?.error || 'Failed to load submission details');
+        setLoading(false);
+      } finally {
+        setLoadingStatus(false);
+      }
+    };
+    
+    fetchData();
+  }, [submissionId]);
   
   const generateExercise = async () => {
     if (!selectedSentence.trim()) {
@@ -82,7 +97,10 @@ const ExerciseCreate = () => {
         submission.task.image_url
       );
       
-      dispatch(setAlert('Exercise generated successfully', 'success'));
+      dispatch(setAlert(
+        `Enhanced exercise generated successfully! ${response.sentences_from_database || 0} sentences from database included.`, 
+        'success'
+      ));
       navigate(`/exercises/${response.exercise.id}/preview`);
     } catch (err) {
       dispatch(setAlert(
@@ -115,11 +133,11 @@ const ExerciseCreate = () => {
   };
   
   if (loading) {
-    return <LoadingSpinner message="Loading submission..." />;
+    return <LoadingSpinner message="Loading submission..." variant="database" />;
   }
   
   if (creating) {
-    return <LoadingSpinner message="Generating exercise..." />;
+    return <LoadingSpinner message="Generating enhanced exercise from database..." variant="exercise" />;
   }
   
   if (error) {
@@ -140,8 +158,88 @@ const ExerciseCreate = () => {
         >
           Back to Submission
         </Button>
-        <Typography variant="h4">Create Exercise</Typography>
+        <Typography variant="h4">Create Enhanced Exercise</Typography>
       </Box>
+      
+      {/* Database Status Card */}
+      {!loadingStatus && (
+        <Paper sx={{ p: 3, mb: 3, backgroundColor: '#f8f9fa', border: '1px solid #e0e0e0' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <StorageIcon sx={{ mr: 1, color: 'primary.main' }} />
+            <Typography variant="h6">
+              📚 Sentence Database Status
+            </Typography>
+          </Box>
+          
+          {databaseStatus?.status === 'loaded' ? (
+  <Box>
+    <Alert severity="success" sx={{ mb: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <CheckCircleIcon sx={{ mr: 1 }} />
+        <Typography variant="body2">
+          Database loaded with <strong>{databaseStatus.total_sentences?.toLocaleString()}</strong> sentences
+        </Typography>
+      </Box>
+    </Alert>
+    
+    {databaseStatus.error_types && databaseStatus.error_types.length > 0 && (
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="body2" gutterBottom>
+          <strong>Available GED error types:</strong>
+        </Typography>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+          {/* Show the actual GED tags with descriptions */}
+          {databaseStatus.error_types.slice(0, 12).map((errorType) => {
+            const descriptions = {
+              'ORTH': 'Orthography',
+              'FORM': 'Word Form', 
+              'MORPH': 'Morphology',
+              'DET': 'Determiners',
+              'POS': 'Part of Speech',
+              'VERB': 'Verb Errors',
+              'NUM': 'Number',
+              'WORD': 'Word Choice',
+              'PUNCT': 'Punctuation',
+              'RED': 'Redundancy',
+              'MULTIWORD': 'Multi-word',
+              'SPELL': 'Spelling'
+            };
+            
+            return (
+              <Chip 
+                key={errorType}
+                label={`${errorType} - ${descriptions[errorType] || errorType}`} 
+                size="small" 
+                variant="outlined"
+                color="primary"
+                title={descriptions[errorType] || errorType}
+              />
+            );
+          })}
+          {databaseStatus.error_types.length > 12 && (
+            <Chip 
+              label={`+${databaseStatus.error_types.length - 12} more`} 
+              size="small" 
+              variant="outlined"
+            />
+          )}
+        </Box>
+      </Box>
+    )}
+    
+    <Typography variant="body2" color="text.secondary">
+      💡 Your exercise will include similar sentences from this database using advanced GED tag matching for enhanced practice
+    </Typography>
+  </Box>
+) : (
+            <Alert severity="info">
+              <Typography variant="body2">
+                Database status unavailable. Exercise generation will proceed with available methods.
+              </Typography>
+            </Alert>
+          )}
+        </Paper>
+      )}
       
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="h5" gutterBottom>
@@ -163,10 +261,11 @@ const ExerciseCreate = () => {
         <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 3 }}>
           <Box sx={{ flex: 2 }}>
             <Typography variant="h6" gutterBottom>
-              Select a Sentence
+              Select a Sentence for Enhanced Exercise
             </Typography>
             <Typography variant="body2" color="text.secondary" paragraph>
-              Choose a sentence with errors from your submission to create an exercise.
+              Choose a sentence with errors from your submission. Our system will find similar sentences 
+              from the database with matching error patterns to create a comprehensive exercise.
             </Typography>
             
             <TextField
@@ -189,14 +288,25 @@ const ExerciseCreate = () => {
                 Add Sentence
               </Button>
               <Button
-                variant="outlined"
+                variant="contained"
+                color="primary"
                 startIcon={<RefreshIcon />}
                 onClick={generateExercise}
                 disabled={sentences.length === 0 && !selectedSentence.trim()}
               >
-                Generate Exercise
+                Generate Enhanced Exercise
               </Button>
             </Box>
+            
+            {/* Show creation progress */}
+            {creating && (
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  Creating exercise with database sentences...
+                </Typography>
+                <LinearProgress />
+              </Box>
+            )}
             
             <Box sx={{ mt: 3 }}>
               <Typography variant="h6" gutterBottom>
@@ -205,7 +315,7 @@ const ExerciseCreate = () => {
               
               {sentences.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
-                  No sentences added yet. Add sentences above.
+                  No sentences added yet. Add sentences above to create a multi-sentence exercise.
                 </Typography>
               ) : (
                 <List>
@@ -237,7 +347,7 @@ const ExerciseCreate = () => {
           
           <Box sx={{ flex: 1 }}>
             {submission.task.image_url && (
-              <Card>
+              <Card sx={{ mb: 2 }}>
                 <CardMedia
                   component="img"
                   image={submission.task.image_url}
@@ -247,9 +357,17 @@ const ExerciseCreate = () => {
               </Card>
             )}
             
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-              This image will be included with the exercise to provide context for the sentences.
-            </Typography>
+            <Alert severity="info">
+              <Typography variant="body2">
+                <strong>Enhanced Exercise Features:</strong>
+              </Typography>
+              <Box component="ul" sx={{ mt: 1, pl: 2, mb: 0 }}>
+                <li>Similar sentences from curated database</li>
+                <li>Matching error pattern detection</li>
+                <li>Comprehensive grammar practice</li>
+                <li>Detailed feedback and scoring</li>
+              </Box>
+            </Alert>
           </Box>
         </Box>
       </Paper>
@@ -269,7 +387,7 @@ const ExerciseCreate = () => {
           onClick={generateExercise}
           disabled={sentences.length === 0 && !selectedSentence.trim()}
         >
-          Generate Exercise
+          Generate Enhanced Exercise
         </Button>
       </Box>
     </Box>

@@ -32,8 +32,8 @@ class Config:
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
     
     # Neural network model configuration
-    NEURAL_NETWORK_MODEL_PATH = os.environ.get('NEURAL_NETWORK_MODEL_PATH') or 'Zlovoblachko/Realec-2step-ft-realec'
-    GED_MODEL_PATH= os.environ.get('GED_MODEL_PATH') or 'Zlovoblachko/4tag-electra-grammar-error-detection'
+    NEURAL_NETWORK_MODEL_PATH = os.environ.get('NEURAL_NETWORK_MODEL_PATH') or 'Zlovoblachko/REAlEC_2step_model_testing'
+    GED_MODEL_PATH = os.environ.get('GED_MODEL_PATH') or 'Zlovoblachko/11tag-electra-grammar-stage2'
     
     # AWS S3 configuration for file storage
     AWS_ACCESS_KEY = os.environ.get('AWS_ACCESS_KEY')

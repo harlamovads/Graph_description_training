@@ -1,13 +1,3 @@
-{
-  "files": {
-    "main.css": "/static/css/main.762dea08.css",
-    "main.js": "/static/js/main.43e8cb2e.js",
-    "index.html": "/index.html",
-    "main.762dea08.css.map": "/static/css/main.762dea08.css.map",
-    "main.43e8cb2e.js.map": "/static/js/main.43e8cb2e.js.map"
-  },
-  "entrypoints": [
-    "static/css/main.762dea08.css",
-    "static/js/main.43e8cb2e.js"
-  ]
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:e3b3129ff7fc4e2a68d09cc3c5443fccfe4708e0df7de29d048560e9d5229a10
+size 369
