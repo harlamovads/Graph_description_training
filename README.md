@@ -2,9 +2,9 @@
 
 # Language Learning Application - AI-Powered Grammar Correction & Exercise Generation
 
-```This repository is a part of the thesis "Developing a Graph Description Training Application for Russian-Speaking Learners of English" (Разработка приложения для тренировки навыков описания графиков при обучении русскоговорящих студентов английскому языку) written by Kharlamova Darya (Харламова Дарья)
+```This repository is a part of the thesis "Developing a Graph Description Training Application for Russian-Speaking Learners of English" (Разработка приложения для тренировки навыков описания графиков при обучении русскоговорящих студентов английскому языку) written by Kharlamova Darya (Харламова Дарья)```
 
-In case of any inconsistencies or deployment troubles, please contact the author.```
+```In case of any inconsistencies or deployment troubles, please contact the author.```
 
 ## Overview
 
