@@ -14,6 +14,7 @@ import Register from './pages/Auth/Register';
 // Dashboard Pages
 import TeacherDashboard from './pages/Dashboard/TeacherDashboard';
 import StudentDashboard from './pages/Dashboard/StudentDashboard';
+import TeacherStats from './pages/Dashboard/TeacherStats';
 
 // Task Pages
 import TaskList from './pages/Tasks/TaskList';
@@ -25,12 +26,9 @@ import SubmissionCreate from './pages/Submissions/SubmissionCreate';
 import SubmissionDetails from './pages/Submissions/SubmissionDetails';
 import SubmissionReview from './pages/Submissions/SubmissionReview';
 
-// Exercise Pages
-import ExerciseList from './pages/Exercises/ExerciseList';
-import ExerciseCreate from './pages/Exercises/ExerciseCreate';
-import ExerciseAttempt from './pages/Exercises/ExerciseAttempt';
-import ExerciseResults from './pages/Exercises/ExerciseResults';
-import ExercisePreview from './pages/Exercises/ExercisePreview';
+// Practice Pages
+import PracticeSession from './pages/Practice/PracticeSession';
+import { PracticeSessionList, PracticeSessionDetail } from './pages/Practice/TeacherPracticeReview';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, role }) => {
@@ -57,13 +55,21 @@ const ProtectedRoute = ({ children, role }) => {
 
 function App() {
   const dispatch = useDispatch();
-  const { loading } = useSelector(state => state.auth);
-  
+  // `checking` (not `loading`) gates the initial render: it starts true and only flips once
+  // checkAuth() has resolved either way (see authReducer's initialState). Gating on `loading`
+  // instead - as this used to - let the very first render happen with the reducer's initial
+  // isAuthenticated:false before checkAuth() (fired from the effect below, so necessarily
+  // after that first render) had a chance to run. On any hard reload/deep link other than
+  // /dashboard or /student-dashboard, that made ProtectedRoute redirect to /login for one
+  // frame, which then bounced the user to their dashboard once auth actually resolved -
+  // silently discarding whatever page they'd asked for.
+  const { checking } = useSelector(state => state.auth);
+
   useEffect(() => {
     dispatch(checkAuth());
   }, [dispatch]);
-  
-  if (loading) {
+
+  if (checking) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
         <CircularProgress />
@@ -103,15 +109,23 @@ function App() {
             </ProtectedRoute>
           } 
         />
-        <Route 
-          path="student-dashboard" 
+        <Route
+          path="student-dashboard"
           element={
             <ProtectedRoute role="student">
               <StudentDashboard />
             </ProtectedRoute>
-          } 
+          }
         />
-        
+        <Route
+          path="stats"
+          element={
+            <ProtectedRoute role="teacher">
+              <TeacherStats />
+            </ProtectedRoute>
+          }
+        />
+
         {/* Task Routes */}
         <Route 
           path="tasks" 
@@ -164,49 +178,33 @@ function App() {
           } 
         />
         
-        {/* Exercise Routes */}
-        <Route 
-          path="exercises" 
-          element={
-            <ProtectedRoute>
-              <ExerciseList />
-            </ProtectedRoute>
-          } 
-        />
-        <Route 
-          path="exercises/create/:submissionId" 
-          element={
-            <ProtectedRoute>
-              <ExerciseCreate />
-            </ProtectedRoute>
-          } 
-        />
-        <Route 
-          path="exercises/:id/attempt" 
+        {/* Practice Routes */}
+        <Route
+          path="practice/:sessionId"
           element={
             <ProtectedRoute role="student">
-              <ExerciseAttempt />
+              <PracticeSession />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="exercises/:id/results" 
+        <Route
+          path="practice-review"
           element={
-            <ProtectedRoute>
-              <ExerciseResults />
+            <ProtectedRoute role="teacher">
+              <PracticeSessionList />
             </ProtectedRoute>
-          } 
+          }
+        />
+        <Route
+          path="practice-review/:sessionId"
+          element={
+            <ProtectedRoute role="teacher">
+              <PracticeSessionDetail />
+            </ProtectedRoute>
+          }
         />
       </Route>
-      <Route 
-        path="exercises/:id/preview" 
-        element={
-          <ProtectedRoute role="teacher">
-            <ExercisePreview />
-          </ProtectedRoute>
-        } 
-        />
-      
+
       {/* Catch all */}
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>

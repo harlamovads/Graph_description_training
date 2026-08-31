@@ -2,6 +2,7 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
+from flask_migrate import Migrate
 from flask import send_from_directory
 import os
 from backend.config import Config
@@ -9,9 +10,11 @@ from backend.models import db
 from backend.routes.auth import auth_bp
 from backend.routes.tasks import tasks_bp
 from backend.routes.submissions import submissions_bp
-from backend.routes.exercises import exercises_bp
+from backend.routes.practice import practice_bp
 from backend.routes.analysis import analysis_bp
 from backend.routes.pages import pages_bp
+from backend.routes.activity import activity_bp
+from backend.routes.stats import stats_bp
 import nltk
 
 def create_app(config_class=Config):
@@ -27,6 +30,7 @@ def create_app(config_class=Config):
     
     # Initialize extensions
     db.init_app(app)
+    Migrate(app, db, directory='database/migrations')
     jwt = JWTManager(app)
     
     # Ensure JWT error handlers are defined
@@ -85,8 +89,10 @@ def create_app(config_class=Config):
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
     app.register_blueprint(submissions_bp, url_prefix='/api/submissions')
-    app.register_blueprint(exercises_bp, url_prefix='/api/exercises')
+    app.register_blueprint(practice_bp, url_prefix='/api/practice')
     app.register_blueprint(analysis_bp, url_prefix='/api/analysis')
+    app.register_blueprint(activity_bp, url_prefix='/api/activity')
+    app.register_blueprint(stats_bp, url_prefix='/api/stats')
     app.register_blueprint(pages_bp)
     
     # Root route to serve the React app
@@ -158,18 +164,6 @@ def test_nn_command():
             print(f"  - Type: {span['type']}, Text: '{span['text']}'")
     
         print("Neural network test completed successfully!")
-
-@app.cli.command("sentence-stats")
-def sentence_stats_command():
-    """Show sentence database statistics."""
-    from load_sentence_database import show_database_stats
-    show_database_stats()
-
-@app.cli.command("clear-sentences")
-def clear_sentences_command():
-    """Clear sentence database."""
-    from load_sentence_database import clear_sentence_database
-    clear_sentence_database()
 
 @app.route('/health')
 def health_check():

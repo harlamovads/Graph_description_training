@@ -75,13 +75,16 @@ const Sidebar = ({ open, toggleDrawer, user }) => {
             </ListItem>
           )}
           
-          {/* Exercises */}
-          <ListItem button component={RouterLink} to="/exercises">
-            <ListItemIcon>
-              <FitnessCenterIcon />
-            </ListItemIcon>
-            <ListItemText primary="Exercises" />
-          </ListItem>
+          {/* Practice Sessions (Teacher only) - students enter practice contextually, from a
+              submission or their dashboard's assigned-practice panel, not a browsable list. */}
+          {isTeacher && (
+            <ListItem button component={RouterLink} to="/practice-review">
+              <ListItemIcon>
+                <FitnessCenterIcon />
+              </ListItemIcon>
+              <ListItemText primary="Practice Sessions" />
+            </ListItem>
+          )}
         </List>
         
         <Divider sx={{ my: 2 }} />

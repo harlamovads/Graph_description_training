@@ -8,7 +8,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"
     restart: unless-stopped
 
   language-learning-app:
@@ -17,7 +17,6 @@ services:
       - "5001:5001"
     volumes:
       - app_uploads:/app/uploads
-      - ./sentencewise_full.jsonl:/app/sentencewise_full.jsonl:ro
     environment:
       - FLASK_APP=app.py
       - FLASK_ENV=production
@@ -32,6 +31,10 @@ services:
       - UPLOAD_FOLDER=/app/uploads
       - NEURAL_NETWORK_MODEL_PATH=Zlovoblachko/REAlEC_2step_model_testing
       - GED_MODEL_PATH=Zlovoblachko/11tag-electra-grammar-stage2
+      # Read from the .env file in this same directory (docker-compose's own env-file support,
+      # separate from the app's dotenv loading) - paste the real key into .env, not here.
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_API_BASE=${DEEPSEEK_API_BASE:-https://api.deepseek.com}
     depends_on:
       - postgres
     restart: unless-stopped

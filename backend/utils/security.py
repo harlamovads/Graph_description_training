@@ -2,10 +2,25 @@
 import hashlib
 import secrets
 import re
+import bleach
 from flask import request, current_app, abort
 from functools import wraps
 from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
-from models.user import User
+from backend.models.user import User
+
+# Allowlist for rich-text submission/feedback content. Matches the formatting options the
+# RichTextEditor toolbar actually exposes (bold/italic/underline/lists/links/headers) —
+# everything else (script tags, event-handler attributes, iframes, ...) is stripped.
+ALLOWED_TAGS = [
+    'p', 'br', 'b', 'i', 'u', 'strong', 'em', 'ul', 'ol', 'li', 'a',
+    'h1', 'h2', 'h3', 'h4', 'blockquote', 'span'
+]
+# No `style` attribute here: sanitizing inline CSS safely needs bleach's separate
+# css_sanitizer add-on, and the RichTextEditor toolbar (bold/italic/underline/lists/
+# link/history) never emits one anyway - so it's not worth allowlisting.
+ALLOWED_ATTRS = {
+    'a': ['href', 'title', 'target', 'rel']
+}
 
 def generate_secure_token(length=32):
     """
@@ -86,16 +101,14 @@ def student_required(f):
 
 def sanitize_input(text):
     """
-    Sanitize user input to prevent XSS attacks
-    
-    :param text: Text to sanitize
-    :return: Sanitized text
+    Sanitize rich-text HTML (student submissions, teacher corrections/feedback) to an
+    allowlist of safe formatting tags, stripping everything else - <script>, event-handler
+    attributes, iframes, etc. Used instead of storing student-controlled HTML verbatim,
+    since it is later rendered client-side.
+
+    :param text: HTML text to sanitize
+    :return: Sanitized HTML text
     """
-    # Remove potentially dangerous HTML tags
-    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
-    text = re.sub(r'<.*?on\w+=[^>]*>', '', text, flags=re.IGNORECASE)
-    
-    # Convert < and > to their HTML entities
-    text = text.replace('<', '&lt;').replace('>', '&gt;')
-    
-    return text
+    if not text:
+        return text
+    return bleach.clean(text, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)

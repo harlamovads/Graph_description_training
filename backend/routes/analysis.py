@@ -25,10 +25,9 @@ def analyze_text():
             return jsonify({"error": analysis_result['error']}), 500
         
         return jsonify({
-            "results": analysis_result.get("results", []),
-            "html_output": analysis_result.get("html_output", ""),
+            "sentences": analysis_result.get("sentences", []),
             "total_errors": analysis_result.get("total_errors", 0),
-            "sentences": analysis_result.get("sentences", [])
+            "ged_error_types": analysis_result.get("ged_error_types", [])
         }), 200
         
     except Exception as e:

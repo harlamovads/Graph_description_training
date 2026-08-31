@@ -34,6 +34,12 @@ class Config:
     # Neural network model configuration
     NEURAL_NETWORK_MODEL_PATH = os.environ.get('NEURAL_NETWORK_MODEL_PATH') or 'Zlovoblachko/REAlEC_2step_model_testing'
     GED_MODEL_PATH = os.environ.get('GED_MODEL_PATH') or 'Zlovoblachko/11tag-electra-grammar-stage2'
+
+    # DeepSeek API (used by backend/services/deepseek_service.py to generate example sentences
+    # for practice sessions). Empty by default - that service degrades to no examples rather
+    # than erroring when this isn't set.
+    DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY') or ''
+    DEEPSEEK_API_BASE = os.environ.get('DEEPSEEK_API_BASE') or 'https://api.deepseek.com'
     
     # AWS S3 configuration for file storage
     AWS_ACCESS_KEY = os.environ.get('AWS_ACCESS_KEY')

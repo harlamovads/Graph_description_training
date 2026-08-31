@@ -28,7 +28,8 @@ def register():
     # Process invitation code for students
     invitation_code = data.get('invitation_code')
     teacher_id = None
-    
+    invitation = None
+
     if data['role'] == 'student' and invitation_code:
         invitation = Invitation.query.filter_by(code=invitation_code, is_used=False).first()
         if invitation:
@@ -44,8 +45,13 @@ def register():
         role=data['role']
     )
     new_user.set_password(data['password'])
-    
+
     db.session.add(new_user)
+    db.session.flush()  # assign new_user.id before linking the invitation to it
+
+    if invitation:
+        invitation.student_id = new_user.id
+
     db.session.commit()
     
     # Create access and refresh tokens
@@ -62,34 +68,23 @@ def register():
 @auth_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    
-    # Debug info
-    print(f"Login attempt for: {data.get('email')}")
-    
-    # Validate required fields
+
+    # Validate required fields (also guards data being None for a missing/non-JSON body -
+    # the old code called data.get(...) for a debug print before this check ever ran)
     if not data or not data.get('email') or not data.get('password'):
         return jsonify({"error": "Email and password are required"}), 400
-    
+
     # Find user by email
     user = User.query.filter_by(email=data['email']).first()
-    
-    # Debug info
-    if not user:
-        print(f"User not found: {data.get('email')}")
-    else:
-        print(f"User found: {user.username}, checking password")
-    
+
     # Check if user exists and password is correct
     if not user or not user.check_password(data['password']):
         return jsonify({"error": "Invalid email or password"}), 401
-    
+
     # Create access and refresh tokens - convert ID to string
     access_token = create_access_token(identity=str(user.id))
     refresh_token = create_refresh_token(identity=str(user.id))
-    
-    print(f"Login successful for: {user.email}, Role: {user.role}")
-    print(f"Generated access token: {access_token[:20]}...")
-    
+
     return jsonify({
         "message": "Login successful",
         "user": user.to_dict(),
@@ -101,8 +96,8 @@ def login():
 @jwt_required(refresh=True)
 def refresh():
     current_user_id = get_jwt_identity()
-    access_token = create_access_token(identity=current_user_id)
-    
+    access_token = create_access_token(identity=str(current_user_id))
+
     return jsonify({
         "access_token": access_token
     }), 200
@@ -110,16 +105,16 @@ def refresh():
 @auth_bp.route('/user', methods=['GET'])
 @jwt_required()
 def get_user():
-    current_user_id = get_jwt_identity()
-    user = User.query.get_or_404(int(current_user_id))
-    
+    current_user_id = int(get_jwt_identity())
+    user = User.query.get_or_404(current_user_id)
+
     return jsonify(user.to_dict()), 200
 
 @auth_bp.route('/generate-invitation', methods=['POST'])
 @jwt_required()
 def generate_invitation():
-    current_user_id = get_jwt_identity()
-    user = User.query.get_or_404(int(current_user_id))
+    current_user_id = int(get_jwt_identity())
+    user = User.query.get_or_404(current_user_id)
     
     # Only teachers can generate invitations
     if user.role != 'teacher':
@@ -154,7 +149,9 @@ def get_students():
     
     # Get students who were invited by this teacher or assigned to this teacher's tasks
     # Method 1: Students who used this teacher's invitation codes
-    invited_students = db.session.query(User).join(Invitation).filter(
+    invited_students = db.session.query(User).join(
+        Invitation, Invitation.student_id == User.id
+    ).filter(
         Invitation.teacher_id == current_user_id,
         Invitation.is_used == True,
         User.role == 'student'

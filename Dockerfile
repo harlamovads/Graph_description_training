@@ -20,6 +20,10 @@ RUN pip install --upgrade pip
 COPY backend/requirements.txt ./backend/
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
+# ERRANT (used to diff/type grammar edits for the highlight and error log) needs a spaCy
+# English pipeline - download it at build time so it doesn't fetch on first request.
+RUN python -m spacy download en_core_web_sm
+
 # Set HuggingFace cache directory
 ENV HF_HOME=/app/.cache/huggingface
 ENV TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers

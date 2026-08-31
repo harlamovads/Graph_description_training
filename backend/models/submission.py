@@ -7,7 +7,6 @@ class Submission(db.Model):
    
     id = db.Column(db.Integer, primary_key=True)
     assignment_id = db.Column(db.Integer, db.ForeignKey('task_assignments.id'), nullable=False)
-    exercise_id = db.Column(db.Integer, db.ForeignKey('exercises.id'), nullable=True)
     student_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     content = db.Column(db.Text, nullable=False)
     analysis_result = db.Column(db.Text)  # JSON string with error detection results
@@ -16,7 +15,18 @@ class Submission(db.Model):
     submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
     reviewed_at = db.Column(db.DateTime)
     analysis_html = db.Column(db.Text)  # Added this field
-   
+    time_spent_seconds = db.Column(db.Float)  # active time from ActivitySession, if tracked
+
+    # Resubmission after review: same assignment_id, a new row per attempt rather than an
+    # update in place, so the original's time/errors/score stay intact. attempt_number=1 is
+    # the original; parent_submission_id always points at that original row (never a chain).
+    attempt_number = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    parent_submission_id = db.Column(db.Integer, db.ForeignKey('submissions.id'), nullable=True)
+
+    # Numeric task-evaluation score (0-10, int or float e.g. 9.5) set by the teacher on review.
+    # Distinct from practice sessions, which are never scored.
+    score = db.Column(db.Float, nullable=True)
+
     def get_analysis_result(self):
         if self.analysis_result:
             return json.loads(self.analysis_result)
@@ -30,11 +40,14 @@ class Submission(db.Model):
             'id': self.id,
             'assignment_id': self.assignment_id,
             'student_id': self.student_id,
-            'exercise_id': self.exercise_id,
             'content': self.content,
             'analysis_result': self.get_analysis_result(),
             'teacher_feedback': self.teacher_feedback,
             'status': self.status,
             'submitted_at': self.submitted_at.isoformat(),
-            'reviewed_at': self.reviewed_at.isoformat() if self.reviewed_at else None
+            'reviewed_at': self.reviewed_at.isoformat() if self.reviewed_at else None,
+            'time_spent_seconds': self.time_spent_seconds,
+            'attempt_number': self.attempt_number,
+            'parent_submission_id': self.parent_submission_id,
+            'score': self.score
         }

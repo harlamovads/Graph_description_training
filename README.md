@@ -1,3 +1,4 @@
+
 # Test preview version link available [here](https://huggingface.co/spaces/Zlovoblachko/lang_learn_app)
 
 # Language Learning Application - AI-Powered Grammar Correction & Exercise Generation
@@ -109,15 +110,6 @@ AWS_BUCKET_NAME=your_bucket_name
 python gen_script.py
 ```
 
-### Step 3: Prepare Required Files
-
-The application requires a sentence database file for exercise generation. Ensure `sentencewise_full.jsonl` is present in the root directory (it should be automatically downloaded via Git LFS).
-
-If the file is missing, you can:
-1. Check Git LFS status: `git lfs ls-files`
-2. Pull LFS files: `git lfs pull`
-3. Or obtain the file from your data source and place it in the root directory
-
 ## Running the Application
 
 ### Option 1: Full Docker Deployment (Recommended)
@@ -156,12 +148,42 @@ export FLASK_APP=app.py
 export FLASK_ENV=development
 export DATABASE_URL=postgresql://app_user:your_password@localhost:5432/language_learning_app
 
-# Initialize the database
+# Download the spaCy model ERRANT uses to type grammar edits (Docker does this at build
+# time via the Dockerfile; a local dev install needs it done once manually)
+python -m spacy download en_core_web_sm
+
+# Apply the schema (creates every table from scratch on an empty database)
+flask db upgrade
+
+# Seed a small sample teacher/students/tasks - a no-op if the database already has data
 python init_db.py
 
 # Run the Flask application
 python app.py
 ```
+
+### Schema Changes and Upgrading
+
+`flask db upgrade` owns the schema - it creates every table from scratch on a fresh database,
+and applies only the missing steps on one that's already at some earlier point in the
+migration history. `init_db.py` no longer touches the schema at all; it only seeds a handful of
+sample rows, and only if the `users` table is empty, so it's always safe to (re-)run.
+
+If you have a database that was created by an **older** version of this app - one where the
+schema came from `db.create_all()` rather than migrations (i.e. it already has `users`,
+`tasks`, `submissions`, etc., possibly still with the old `exercises`/`exercise_attempts`/
+`sentences` tables) - tell Alembic it's already at that point before upgrading, once:
+
+```bash
+flask db stamp f42d3069a5b8   # only if the database predates this app's migration history
+flask db upgrade
+```
+
+Skip the `stamp` step entirely for a genuinely empty/new database; `flask db upgrade` alone
+builds the schema from scratch in that case.
+
+(`database/migrations/` holds the migration history; `flask db init/migrate` are only needed
+again if you change the models yourselves.)
 
 ## Initial Setup and Usage
 
@@ -192,9 +214,12 @@ Student Accounts:
 2. **Teacher assigns tasks to students** with optional due dates
 3. **Students complete assignments** using the rich text editor
 4. **AI analyzes submissions** for grammar errors and provides detailed feedback
-5. **Teacher reviews submissions** with AI-generated analysis
-6. **Exercises are generated** from error patterns for targeted practice
-7. **Students practice** with personalized exercises and receive immediate feedback
+5. **Teacher reviews submissions** with AI-generated analysis, optionally editing corrections,
+   assigning a 0-10 score, and flagging specific sentences for practice
+6. **Students practice flagged sentences** in a guided rewrite-then-generate loop, either
+   self-started from their own submission or entered from a teacher assignment
+7. **Students may resubmit** a task once it's been reviewed; the original attempt, its time, and
+   its error log stay intact alongside the new one
 
 ## System Requirements
 
@@ -265,15 +290,16 @@ docker-compose exec postgres pg_isready
 
 - **`app.py`** - Main Flask application entry point
 - **`backend/`** - Core application backend
-  - **`models/`** - Database models (User, Task, Submission, Exercise, Sentence)
+  - **`models/`** - Database models (User, Task, Submission, PracticeSession, PracticeAssignment)
   - **`routes/`** - API endpoints for different functionalities
   - **`services/`** - Business logic and AI model integration
   - **`static/`** - Pre-built React frontend files
 - **`docker/`** - Docker configuration and deployment scripts
 - **`frontend/`** - React.js source code (for development)
-- **`sentencewise_full.jsonl`** - Sentence database for exercise generation (Git LFS)
+- **`sentencewise_full.jsonl`** - Kept in the repo (Git LFS) but no longer loaded by the app;
+  the old corpus-backed exercise generator was replaced by per-sentence practice sessions
 - **`.env.template`** - Environment configuration template
-- **`init_db.py`** - Database initialization script
+- **`init_db.py`** - Idempotent sample-data seed (only runs if the database is empty)
 - **`docker-compose.yml`** - Multi-service orchestration
 
 ## Contributing

@@ -1,6 +1,6 @@
 // frontend/src/pages/Submissions/SubmissionDetails.js
 import React, { useState, useEffect } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useSelector } from 'react-redux';
 import { useParams, useNavigate, Link as RouterLink } from 'react-router-dom';
 import {
   Box,
@@ -12,21 +12,21 @@ import {
   CardMedia,
   Divider,
   Chip,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
   Alert
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EditNoteIcon from '@mui/icons-material/EditNote';
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import BrainIcon from '@mui/icons-material/Psychology';
 
+import { useDispatch } from 'react-redux';
 import { setAlert } from '../../redux/actions/uiActions';
 import submissionService from '../../services/submissionService';
+import practiceService from '../../services/practiceService';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorBox from '../../components/common/ErrorBox';
+import GrammarDiffView from '../../components/common/GrammarDiffView';
 
 const SubmissionDetails = () => {
   const { id } = useParams();
@@ -34,29 +34,41 @@ const SubmissionDetails = () => {
   const dispatch = useDispatch();
   const { user } = useSelector(state => state.auth);
   const isTeacher = user?.role === 'teacher';
-  
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [submission, setSubmission] = useState(null);
-  
+  const [startingPractice, setStartingPractice] = useState(null);
+
   useEffect(() => {
     const fetchSubmission = async () => {
       try {
         setLoading(true);
-        
+
         const response = await submissionService.getSubmission(id);
         setSubmission(response);
-        
+
         setLoading(false);
       } catch (err) {
         setError(err.response?.data?.error || 'Failed to load submission details');
         setLoading(false);
       }
     };
-    
+
     fetchSubmission();
   }, [id]);
-  
+
+  const handlePractice = async (sentenceId) => {
+    try {
+      setStartingPractice(sentenceId);
+      const session = await practiceService.start(submission.id, sentenceId);
+      navigate(`/practice/${session.id}`);
+    } catch (err) {
+      dispatch(setAlert(err.response?.data?.error || 'Failed to start practice session', 'error'));
+      setStartingPractice(null);
+    }
+  };
+
   if (loading) {
     return <LoadingSpinner message="Loading submission..." variant="analysis" />;
   }
@@ -122,7 +134,7 @@ const SubmissionDetails = () => {
               </Card>
             )}
             
-            <Box sx={{ mt: 3 }}>
+            <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 1 }}>
               {isTeacher ? (
                 <Button
                   variant="contained"
@@ -136,16 +148,16 @@ const SubmissionDetails = () => {
                   {submission.status === 'reviewed' ? 'Already Reviewed' : 'Review Submission'}
                 </Button>
               ) : (
-                submission.status === 'reviewed' && (
+                submission.status === 'reviewed' && submission.is_latest_attempt && (
                   <Button
-                    variant="contained"
-                    color="secondary"
-                    startIcon={<FitnessCenterIcon />}
+                    variant="outlined"
+                    color="primary"
+                    startIcon={<RefreshIcon />}
                     component={RouterLink}
-                    to={`/exercises/create/${submission.id}`}
+                    to={`/submissions/${submission.task.id}/create`}
                     fullWidth
                   >
-                    Create Exercise
+                    Resubmit
                   </Button>
                 )
               )}
@@ -172,75 +184,37 @@ const SubmissionDetails = () => {
           <>
             <Alert severity="info" sx={{ mb: 2 }}>
               <Typography variant="body2">
-                Our enhanced neural network detected <strong>{submission.analysis_result.total_errors || 0}</strong> potential errors in the text.
+                <strong>{submission.analysis_result.total_errors || 0}</strong> error{submission.analysis_result.total_errors === 1 ? '' : 's'} detected,
+                highlighted below against what the neural network (or your teacher) corrected.
                 {submission.analysis_result.total_errors === 0 && " Great job on your grammar!"}
               </Typography>
             </Alert>
-            
-            {/* Use the rich HTML output from enhanced neural network */}
-            {submission.analysis_result?.html_output ? (
-              <Box 
-                sx={{ 
-                  mt: 2,
-                  '& .error-highlight': {
-                    backgroundColor: '#ffebee',
-                    padding: '2px 4px',
-                    borderRadius: '3px',
-                    border: '1px solid #f44336'
-                  },
-                  '& span[title]': {
-                    cursor: 'help'
-                  }
-                }}
-                dangerouslySetInnerHTML={{ __html: submission.analysis_result.html_output }}
-              />
-            ) : (
-              // Fallback to existing accordion display
-              <Accordion>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Typography>View Detailed Analysis</Typography>
-                </AccordionSummary>
-                <AccordionDetails>
-                  {submission.analysis_result.sentences?.map((sentence, index) => (
-                    <Box key={index} sx={{ mb: 2, p: 2, backgroundColor: '#f8f9fa', borderRadius: 1 }}>
-                      <Typography variant="body1" paragraph>
-                        {sentence.content}
-                      </Typography>
-                      
-                      {sentence.errors.length > 0 ? (
-                        <>
-                          <Typography variant="subtitle2" gutterBottom>
-                            Errors Found:
-                          </Typography>
-                          <Box component="ul" sx={{ mt: 1, pl: 2 }}>
-                            {sentence.errors.map((error, errorIndex) => (
-                              <Box component="li" key={errorIndex}>
-                                <Typography variant="body2">
-                                  <strong>{error.type}</strong>: {error.original}
-                                  {error.suggestion && ` → ${error.suggestion}`}
-                                </Typography>
-                              </Box>
-                            ))}
-                          </Box>
-                        </>
-                      ) : (
-                        <Typography variant="body2" color="success.main">
-                          No errors detected
-                        </Typography>
-                      )}
-                    </Box>
-                  ))}
-                </AccordionDetails>
-              </Accordion>
-            )}
-            
-            {/* Enhanced analysis features info */}
-            <Box sx={{ mt: 3, p: 2, backgroundColor: '#f0f8ff', borderRadius: 1, border: '1px solid #b3d9ff' }}>
-              <Typography variant="body2" color="text.secondary">
-                💡 <strong>Enhanced Analysis:</strong> This submission was analyzed using our advanced T5-GED neural network 
-                with 11-tag error classification for more accurate grammar detection and correction suggestions.
-              </Typography>
-            </Box>
+
+            {submission.analysis_result.sentences?.map((sentence) => (
+              <Box key={sentence.id} sx={{ mb: 2 }}>
+                <GrammarDiffView
+                  original={sentence.original}
+                  corrected={sentence.teacher_corrected || sentence.corrected}
+                  edits={sentence.errant_edits || []}
+                />
+                <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  {sentence.teacher_corrected && (
+                    <Chip size="small" label="Corrected by teacher" color="secondary" />
+                  )}
+                  {!isTeacher && sentence.errant_edits?.length > 0 && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<FitnessCenterIcon />}
+                      disabled={startingPractice === sentence.id}
+                      onClick={() => handlePractice(sentence.id)}
+                    >
+                      Practice this sentence
+                    </Button>
+                  )}
+                </Box>
+              </Box>
+            ))}
           </>
         ) : (
           <Alert severity="warning">

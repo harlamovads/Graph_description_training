@@ -69,14 +69,14 @@
             resultDiv.innerHTML = '<div class="loading"><p>Analyzing text...</p></div>';
             
             try {
-                // Get token from localStorage (assuming your auth system stores it there)
-                const token = localStorage.getItem('access_token');
-                
+                // The app stores the JWT under the 'token' key (see frontend/src/redux/actions/authActions.js)
+                const token = localStorage.getItem('token');
+
                 if (!token) {
                     resultDiv.innerHTML = '<p>Authentication required. Please log in first.</p>';
                     return;
                 }
-                
+
                 // Call the API
                 const response = await fetch('/api/analysis/text', {
                     method: 'POST',
@@ -86,12 +86,23 @@
                     },
                     body: JSON.stringify({ text })
                 });
-                
+
                 const data = await response.json();
-                
+
                 if (response.ok) {
-                    // Display the HTML output
-                    resultDiv.innerHTML = data.html_output;
+                    // Render the ERRANT-typed diff per sentence (see backend/services/errant_service.py)
+                    const esc = (s) => (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+                    resultDiv.innerHTML = `<p><strong>${data.total_errors}</strong> error(s) found.</p>` +
+                        (data.sentences || []).map(s => {
+                            const edits = (s.errant_edits || []).map(e =>
+                                `<li><code>${esc(e.errant_type)}</code>: "${esc(e.original_text)}" &rarr; "${esc(e.corrected_text)}"</li>`
+                            ).join('');
+                            return `<div style="margin:10px 0;padding:10px;border:1px solid #ddd;">
+                                <p><strong>Original:</strong> ${esc(s.original)}</p>
+                                <p><strong>Corrected:</strong> ${esc(s.corrected)}</p>
+                                <ul>${edits || '<li>No errors</li>'}</ul>
+                            </div>`;
+                        }).join('');
                 } else {
                     // Display error message
                     resultDiv.innerHTML = `<p>Error: ${data.error || 'Failed to analyze text'}</p>`;

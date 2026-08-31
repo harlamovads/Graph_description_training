@@ -25,7 +25,7 @@ import AddIcon from '@mui/icons-material/Add';
 import SchoolIcon from '@mui/icons-material/School';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import GradingIcon from '@mui/icons-material/Grading';
-import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
+import InsightsIcon from '@mui/icons-material/Insights';
 
 import { setAlert } from '../../redux/actions/uiActions';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -33,10 +33,13 @@ import ErrorBox from '../../components/common/ErrorBox';
 import taskService from '../../services/taskService';
 import submissionService from '../../services/submissionService';
 import authService from '../../services/authService';
+import practiceService from '../../services/practiceService';
+
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 const TeacherDashboard = () => {
   const dispatch = useDispatch();
-  
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [tasks, setTasks] = useState([]);
@@ -44,34 +47,45 @@ const TeacherDashboard = () => {
   const [pendingSubmissions, setPendingSubmissions] = useState([]);
   const [invitationDialog, setInvitationDialog] = useState(false);
   const [invitationCode, setInvitationCode] = useState('');
-  
+  const [practiceSessionsThisWeek, setPracticeSessionsThisWeek] = useState(0);
+
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
         setLoading(true);
-        
+
         // Fetch tasks
         const tasksResponse = await taskService.getTasks();
         setTasks(tasksResponse.tasks || []);
-        
+
         // Fetch submissions
         const submissionsResponse = await submissionService.getTeacherSubmissions();
         setSubmissions(submissionsResponse.submissions || []);
-        
+
         // Filter pending submissions (not reviewed)
         setPendingSubmissions(
           (submissionsResponse.submissions || []).filter(
             submission => submission.status === 'submitted'
           )
         );
-        
+
+        // Practice sessions are surfaced far less prominently than reviews below - just a
+        // small count/link, so a lightweight count is all this page needs.
+        const practiceResponse = await practiceService.getTeacherSessions();
+        const cutoff = Date.now() - ONE_WEEK_MS;
+        setPracticeSessionsThisWeek(
+          (practiceResponse.sessions || []).filter(
+            s => s.started_at && new Date(s.started_at).getTime() >= cutoff
+          ).length
+        );
+
         setLoading(false);
       } catch (err) {
         setError(err.response?.data?.error || 'Failed to load dashboard data');
         setLoading(false);
       }
     };
-    
+
     fetchDashboardData();
   }, []);
   
@@ -137,6 +151,15 @@ const TeacherDashboard = () => {
               >
                 Generate Invitation Code
               </Button>
+              <Button
+                variant="outlined"
+                startIcon={<InsightsIcon />}
+                component={RouterLink}
+                to="/stats"
+                fullWidth
+              >
+                Student Stats
+              </Button>
             </Box>
           </Paper>
         </Grid>
@@ -155,26 +178,14 @@ const TeacherDashboard = () => {
                     key={submission.id}
                     divider
                     secondaryAction={
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          component={RouterLink}
-                          to={`/submissions/${submission.id}/review`}
-                        >
-                          Review
-                        </Button>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          color="secondary"
-                          startIcon={<FitnessCenterIcon />}
-                          component={RouterLink}
-                          to={`/exercises/create/${submission.id}`}
-                        >
-                          Create Exercise
-                        </Button>
-                      </Box>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        component={RouterLink}
+                        to={`/submissions/${submission.id}/review`}
+                      >
+                        Review
+                      </Button>
                     }
                   >
                     <ListItemText
@@ -285,21 +296,25 @@ const TeacherDashboard = () => {
                 </Paper>
               </Grid>
             </Grid>
-            <Box sx={{ mt: 2 }}>
-              <Button 
-                variant="text" 
-                fullWidth 
-                startIcon={<FitnessCenterIcon />}
-                component={RouterLink}
-                to="/exercises"
-              >
-                Manage Exercises
-              </Button>
-            </Box>
           </Paper>
         </Grid>
       </Grid>
-      
+
+      {/* Practice sessions are intentionally understated here - a plain text link, not a
+          card - since they matter far less than the reviews above. */}
+      <Box sx={{ mt: 2, textAlign: 'center' }}>
+        <Button
+          variant="text"
+          size="small"
+          color="inherit"
+          component={RouterLink}
+          to="/practice-review"
+          sx={{ color: 'text.secondary' }}
+        >
+          {practiceSessionsThisWeek} practice session{practiceSessionsThisWeek === 1 ? '' : 's'} this week &rarr;
+        </Button>
+      </Box>
+
       {/* Invitation Code Dialog */}
       <Dialog
         open={invitationDialog}

@@ -2,7 +2,6 @@
 import torch
 import nltk
 import re
-import difflib
 from transformers import (
     T5Tokenizer, 
     T5ForConditionalGeneration, 
@@ -233,7 +232,14 @@ class HuggingFaceT5GEDInference:
         return corrected_text
     
     def analyze_text(self, text):
-        """Enhanced analysis method for Flask integration"""
+        """Enhanced analysis method for Flask integration.
+
+        Note: `error_spans`/`error_types` here are the internal ELECTRA GED tagger's own
+        token-level predictions on the *original* text - kept around for reference/debugging
+        only. They are NOT used to drive the user-facing highlight - that comes from
+        errant_service.compute_edits(text, corrected_text), diffing against what this method
+        actually corrected. See routes/submissions.py and backend/services/practice_service.py.
+        """
         if not text.strip():
             return {"error": "Please enter some text."}
 
@@ -243,215 +249,86 @@ class HuggingFaceT5GEDInference:
                 return {"error": "Please enter some text."}
             corrected_text = self.correct_text(clean_text)
             error_spans, error_types = self._get_error_spans_detailed(clean_text)
-            html_output = self.generate_html_analysis(clean_text, corrected_text, error_spans)
             return {
                 "corrected_text": corrected_text,
-                "error_spans": error_spans,
-                "error_types": error_types,  # Add this for compatibility
-                "html_output": html_output
+                "ged_error_spans": error_spans,
+                "ged_error_types": error_types
             }
-        
+
         except Exception as e:
             return {"error": f"Error during analysis: {str(e)}"}
-    
-    def generate_html_analysis(self, original, corrected, error_spans):
-        """Generate enhanced HTML analysis output with correct error types"""
-        # Create highlighted original text
-        highlighted_original = original
-        if error_spans:
-            # Sort by position in reverse to avoid index shifting
-            sorted_spans = sorted(error_spans, key=lambda x: x['position'], reverse=True)
-            
-            # Color coding for different error types - using actual GED tags
-            color_map = {
-                "ORTH": "#ffebee",      # Light red - Orthography
-                "FORM": "#e8f5e8",      # Light green - Word form
-                "MORPH": "#fff3e0",     # Light orange - Morphology
-                "DET": "#e3f2fd",       # Light blue - Determiners
-                "POS": "#f3e5f5",       # Light purple - Part of speech
-                "VERB": "#fce4ec",      # Light pink - Verb errors
-                "NUM": "#e0f2f1",       # Light teal - Number
-                "WORD": "#fff8e1",      # Light yellow - Word choice
-                "PUNCT": "#efebe9",     # Light brown - Punctuation
-                "RED": "#ffebee",       # Light red - Redundancy
-                "MULTIWORD": "#e8eaf6", # Light indigo - Multi-word
-                "SPELL": "#fcf4ff"      # Light magenta - Spelling
-            }
-            
-            # Simple highlighting
-            for span in sorted_spans:
-                token = span['token']
-                error_type = span['type']
-                
-                color = color_map.get(error_type, "#f5f5f5")
-                
-                # Simple token replacement (basic highlighting)
-                if token in highlighted_original:
-                    highlighted_original = highlighted_original.replace(
-                        token, 
-                        f"<span style='background-color: {color}; padding: 1px 3px; border-radius: 3px; margin: 0 1px;' title='{error_type}: {token}'>{token}</span>",
-                        1
-                    )
-        
-        html = f"""
-        <div style='font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background-color: #f9f9f9;'>
-            <h3 style='color: #333; margin-top: 0;'>Enhanced Grammar Analysis Results</h3>
-            
-            <div style='margin: 15px 0;'>
-                <h4 style='color: #555;'>Original Text with Error Highlighting:</h4>
-                <div style='padding: 10px; background-color: #fff; border: 1px solid #ddd; border-radius: 4px;'>{highlighted_original}</div>
-            </div>
-            
-            <div style='margin: 15px 0;'>
-                <h4 style='color: #28a745;'>Corrected Text:</h4>
-                <p style='padding: 10px; background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;'>{corrected}</p>
-            </div>
-            
-            <div style='margin: 15px 0;'>
-                <h4 style='color: #333;'>Error Summary:</h4>
-                <p style='color: #666;'>Found {len(error_spans)} potential issues</p>
-                
-                <div style='margin-top: 10px;'>
-                    <span style='display: inline-block; margin: 2px 5px; padding: 2px 8px; background-color: #ffebee; border-radius: 12px; font-size: 12px;'>ORTH - Orthography</span>
-                    <span style='display: inline-block; margin: 2px 5px; padding: 2px 8px; background-color: #e8f5e8; border-radius: 12px; font-size: 12px;'>FORM - Word Form</span>
-                    <span style='display: inline-block; margin: 2px 5px; padding: 2px 8px; background-color: #fff3e0; border-radius: 12px; font-size: 12px;'>MORPH - Morphology</span>
-                    <span style='display: inline-block; margin: 2px 5px; padding: 2px 8px; background-color: #e3f2fd; border-radius: 12px; font-size: 12px;'>DET - Determiners</span>
-                    <span style='display: inline-block; margin: 2px 5px; padding: 2px 8px; background-color: #fcf4ff; border-radius: 12px; font-size: 12px;'>SPELL - Spelling</span>
-                </div>
-            </div>
-        </div>
-        """
-        return html
 
 
-# Utility functions for finding differences
-def find_differences(source, corrected):
-    """Find differences between source and corrected text."""
-    diff = difflib.ndiff(source.split(), corrected.split())
-    changes = []
-    for i, s in enumerate(diff):
-        if s.startswith('- '):
-            changes.append({"type": "deletion", "text": s[2:], "position": i})
-        elif s.startswith('+ '):
-            changes.append({"type": "addition", "text": s[2:], "position": i})
-    return changes
+def analyze_and_diff(sentence, model=None):
+    """Analyze a single sentence and diff it against its own correction.
+
+    This is the one place a sentence gets run through the model and typed via ERRANT - shared
+    by process_text()'s per-sentence loop (task submissions) and
+    backend/services/practice_service.py's practice-item rounds (see start_session's note on
+    reusing this instead of a second inline copy), so both go through the exact same analysis
+    path.
+
+    Returns {"original", "corrected", "errant_edits", "ged_error_spans", "ged_error_types"}.
+    On a model error, degrades to a no-op result (corrected == original, no edits) rather than
+    raising, matching process_text's existing per-sentence fallback behavior.
+    """
+    from backend.services import errant_service
+
+    if model is None:
+        model = get_model()
+
+    analysis = model.analyze_text(sentence)
+
+    if "error" in analysis:
+        return {
+            "original": sentence,
+            "corrected": sentence,
+            "errant_edits": [],
+            "ged_error_spans": [],
+            "ged_error_types": []
+        }
+
+    corrected = analysis["corrected_text"]
+    return {
+        "original": sentence,
+        "corrected": corrected,
+        "errant_edits": errant_service.compute_edits(sentence, corrected),
+        "ged_error_spans": analysis.get("ged_error_spans", []),
+        "ged_error_types": analysis.get("ged_error_types", [])
+    }
 
 
 def process_text(text, model):
-    """Process input text by splitting into sentences and applying the model."""
+    """Process input text by splitting into sentences and applying the model.
+
+    Each sentence result carries the NN's `corrected` text plus `errant_edits` - the typed
+    diff between `original` and `corrected` (see backend/services/errant_service.py) - which
+    is what drives the displayed highlight. `ged_error_types`/`ged_error_spans` are kept
+    around for reference/debugging only, not used elsewhere.
+    """
     if not text.strip():
         return {"error": "Please enter some text."}
-    
+
+    # Strip rich-text markup (RichTextEditor stores submissions as HTML) before sentence
+    # tokenization, not just inside model.analyze_text(). Tokenizing on the raw HTML let tags
+    # merge into the first "sentence" (e.g. "<p>I have"), which then leaked into the ERRANT
+    # diff as if it were part of the student's original text. Replace tags with a space
+    # (not '') so adjacent block elements like </p><p> don't fuse two words together.
+    clean_text = re.sub(r'<[^>]+>', ' ', text)
+    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+    if not clean_text:
+        return {"error": "Please enter some text."}
+
     try:
-        sentences = nltk.sent_tokenize(text)
+        sentences = nltk.sent_tokenize(clean_text)
     except LookupError:
         nltk.download('punkt')
-        sentences = nltk.sent_tokenize(text)
-    
-    results = []
-    for sentence in sentences:
-        # Use the enhanced model's analyze_text method
-        analysis = model.analyze_text(sentence)
-        
-        if "error" in analysis:
-            results.append({
-                "original": sentence,
-                "corrected": sentence,
-                "error_spans": [],
-                "error_types": [],
-                "changes": []
-            })
-        else:
-            corrected = analysis["corrected_text"]
-            error_spans = analysis["error_spans"]
-            error_types = analysis.get("error_types", [])
-            changes = find_differences(sentence, corrected)
-            
-            results.append({
-                "original": sentence,
-                "corrected": corrected,
-                "error_spans": error_spans,
-                "error_types": error_types,
-                "changes": changes
-            })
-    
-    return results
+        sentences = nltk.sent_tokenize(clean_text)
 
-
-def generate_html_output(results):
-    """Generate HTML output from analysis results with highlighted errors and corrections."""
-    html_output = "<div style='font-family: Arial, sans-serif; line-height: 1.6;'>"
-    
-    for i, result in enumerate(results):
-        html_output += f"<div style='margin-bottom: 25px; padding: 20px; border-radius: 8px; background-color: #f8f9fa; border-left: 4px solid #007bff;'>"
-        
-        # Sentence number
-        html_output += f"<h4 style='margin-top: 0; color: #333;'>Sentence {i + 1}</h4>"
-        
-        # Original sentence with highlighted errors
-        original = result["original"]
-        error_spans = result["error_spans"]
-        
-        if error_spans:
-            # Create highlighted version
-            marked_original = original
-            
-            # Color mapping for actual GED tags
-            color_map = {
-                "ORTH": "#ffebee",      # Light red - Orthography
-                "FORM": "#e8f5e8",      # Light green - Word form
-                "MORPH": "#fff3e0",     # Light orange - Morphology
-                "DET": "#e3f2fd",       # Light blue - Determiners
-                "POS": "#f3e5f5",       # Light purple - Part of speech
-                "VERB": "#fce4ec",      # Light pink - Verb errors
-                "NUM": "#e0f2f1",       # Light teal - Number
-                "WORD": "#fff8e1",      # Light yellow - Word choice
-                "PUNCT": "#efebe9",     # Light brown - Punctuation
-                "RED": "#ffebee",       # Light red - Redundancy
-                "MULTIWORD": "#e8eaf6", # Light indigo - Multi-word
-                "SPELL": "#fcf4ff"      # Light magenta - Spelling
-            }
-            
-            for span in error_spans:
-                error_type = span["type"]
-                span_text = span["token"]
-                
-                color = color_map.get(error_type, "#f3e5f5")
-                
-                # Find and mark the span
-                if span_text in marked_original:
-                    marked_original = marked_original.replace(
-                        span_text,
-                        f"<span style='background-color: {color}; border: 1px solid #ddd; padding: 2px 4px; border-radius: 3px; margin: 0 1px;' title='{error_type}: {span_text}'>{span_text}</span>",
-                        1
-                    )
-            
-            html_output += f"<div style='margin: 15px 0;'>"
-            html_output += f"<p style='margin: 5px 0; font-weight: bold; color: #555;'>Original (with errors highlighted):</p>"
-            html_output += f"<p style='margin: 10px 0; padding: 15px; background-color: white; border: 1px solid #ddd; border-radius: 5px; font-size: 16px;'>{marked_original}</p>"
-            html_output += f"</div>"
-        else:
-            html_output += f"<div style='margin: 15px 0;'>"
-            html_output += f"<p style='margin: 5px 0; font-weight: bold; color: #555;'>Original:</p>"
-            html_output += f"<p style='margin: 10px 0; padding: 15px; background-color: white; border: 1px solid #ddd; border-radius: 5px; font-size: 16px;'>{original}</p>"
-            html_output += f"</div>"
-        
-        # Corrected sentence
-        corrected = result["corrected"]
-        if corrected != original:
-            html_output += f"<div style='margin: 15px 0;'>"
-            html_output += f"<p style='margin: 5px 0; font-weight: bold; color: #28a745;'>Corrected version:</p>"
-            html_output += f"<p style='margin: 10px 0; padding: 15px; background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: 5px; font-size: 16px;'>{corrected}</p>"
-            html_output += f"</div>"
-        else:
-            html_output += f"<div style='margin: 15px 0;'>"
-            html_output += f"<p style='margin: 5px 0; font-weight: bold; color: #28a745;'>✅ No errors detected - sentence is correct!</p>"
-            html_output += f"</div>"
-        
-        html_output += "</div>"
-    
-    html_output += "</div>"
-    return html_output
+    # analyze_and_diff is the same per-sentence analyze-then-diff step practice_service reuses
+    # for practice-item rounds, so a submission's sentences and a practice round go through the
+    # exact same analysis path.
+    return [analyze_and_diff(sentence, model) for sentence in sentences]
 
 
 # Global model instance
@@ -467,69 +344,50 @@ def get_model():
     return _model
 
 def analyze_submission(text):
-    """Analyze a student submission using the enhanced neural network model."""
+    """Analyze a student submission using the enhanced neural network model.
+
+    Returns a JSON-serializable dict (this is what's stored in Submission.analysis_result):
+    {
+      "sentences": [
+        {
+          "id": i, "original": ..., "corrected": ...,   # the NN's correction
+          "teacher_corrected": None,                    # settable later, see submissions.py
+          "errant_edits": [...],                        # diff(original, corrected) - drives the highlight
+          "ged_error_types": [...]                       # reference/debugging only
+        }, ...
+      ],
+      "total_errors": N,          # sum of errant_edits across sentences
+      "ged_error_types": [...]    # union across sentences, reference/debugging only
+    }
+    """
     model = get_model()
     results = process_text(text, model)
-    
+
     # Check if the model returned an error
     if isinstance(results, dict) and 'error' in results:
         return {'error': results['error']}
-    
-    # Generate analysis result
-    analysis_result = {
-        "results": results,
-        "html_output": generate_html_output(results),
-        "total_errors": sum(len(result["error_spans"]) for result in results),
-        "sentences": []
-    }
-    
-    # Prepare results in format compatible with submission model
+
+    sentences = []
+    all_ged_types = set()
+    total_errors = 0
+
     for i, result in enumerate(results):
-        sentence_analysis = {
+        errant_edits = result.get("errant_edits", [])
+        ged_types = result.get("ged_error_types", [])
+        all_ged_types.update(ged_types)
+        total_errors += len(errant_edits)
+
+        sentences.append({
             "id": i,
-            "content": result["original"],
-            "errors": []
-        }
-        
-        # Convert error spans to expected format - USE CORRECT TAGS
-        for span in result["error_spans"]:
-            sentence_analysis["errors"].append({
-                "type": span["type"],  # This is now the correct GED tag (ORTH, FORM, etc.)
-                "start": span.get("position", -1),
-                "end": span.get("position", -1) + 1,
-                "original": span["token"],
-                "suggestion": ""
-            })
-        
-        analysis_result["sentences"].append(sentence_analysis)
-    
-    return analysis_result
-
-
-def analyze_sentence(sentence):
-    """Analyze a single sentence using the enhanced neural network model."""
-    model = get_model()
-    analysis = model.analyze_text(sentence)
-    
-    # Check if the model returned an error
-    if 'error' in analysis:
-        return {'error': analysis['error']}
-    
-    # Return formatted result with correct tags
-    result = {
-        "content": sentence,
-        "errors": [],
-        "error_types": analysis.get("error_types", [])  # Include actual error types
-    }
-    
-    # Convert error spans to expected format - USE CORRECT TAGS
-    for span in analysis["error_spans"]:
-        result["errors"].append({
-            "type": span["type"],  # This is now the correct GED tag
-            "start": span.get("position", -1),
-            "end": span.get("position", -1) + 1,
-            "original": span["token"],
-            "suggestion": ""
+            "original": result["original"],
+            "corrected": result["corrected"],
+            "teacher_corrected": None,
+            "errant_edits": errant_edits,
+            "ged_error_types": ged_types
         })
-    
-    return result
+
+    return {
+        "sentences": sentences,
+        "total_errors": total_errors,
+        "ged_error_types": list(all_ged_types)
+    }

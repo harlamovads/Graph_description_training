@@ -83,9 +83,11 @@ const Navbar = ({ toggleDrawer, isAuthenticated, user, onLogout }) => {
               <MenuItem component={RouterLink} to="/tasks" onClick={handleClose}>
                 Tasks
               </MenuItem>
-              <MenuItem component={RouterLink} to="/exercises" onClick={handleClose}>
-                Exercises
-              </MenuItem>
+              {user?.role === 'teacher' && (
+                <MenuItem component={RouterLink} to="/practice-review" onClick={handleClose}>
+                  Practice Sessions
+                </MenuItem>
+              )}
               <MenuItem onClick={handleLogout}>Logout</MenuItem>
             </Menu>
           </Box>

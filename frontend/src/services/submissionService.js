@@ -25,12 +25,15 @@ const submissionService = {
     return response.data;
   },
   
-  // Review a submission (teacher only)
-  reviewSubmission: async (submissionId, feedback) => {
+  // Review a submission (teacher only). `corrections` and `score` are optional:
+  // corrections: { [sentenceId]: "teacher's corrected text" }, score: number 0-10
+  reviewSubmission: async (submissionId, feedback, corrections, score) => {
     const response = await api.post(`/submissions/${submissionId}/review`, {
-      feedback
+      feedback,
+      corrections,
+      score
     });
-    
+
     return response.data;
   }
 };

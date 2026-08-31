@@ -1,6 +1,7 @@
 # models/task.py
 from datetime import datetime
 from . import db
+from .submission import Submission
 
 class Task(db.Model):
     __tablename__ = 'tasks'
@@ -37,5 +38,9 @@ class TaskAssignment(db.Model):
     due_date = db.Column(db.DateTime)
     assigned_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # Relationship
-    submission = db.relationship('Submission', backref='assignment', uselist=False)
+    # Relationship: one-to-many now that a student can resubmit after review (see
+    # Submission.attempt_number / parent_submission_id).
+    submissions = db.relationship('Submission', backref='assignment', lazy='dynamic')
+
+    def latest_submission(self):
+        return self.submissions.order_by(Submission.attempt_number.desc()).first()

@@ -31,15 +31,47 @@ api.interceptors.request.use(
   }
 );
 
-// Handle token expiration
+// Handle token expiration: try a silent refresh once before forcing a re-login, so a
+// 1-hour access token doesn't throw the user back to /login while a valid refresh_token
+// is sitting unused in localStorage.
+let refreshPromise = null;
+
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response && error.response.status === 401) {
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (
+      error.response &&
+      error.response.status === 401 &&
+      !originalRequest._retry &&
+      !originalRequest.url?.includes('/auth/refresh') &&
+      !originalRequest.url?.includes('/auth/login')
+    ) {
+      originalRequest._retry = true;
+      const refreshToken = localStorage.getItem('refresh_token');
+
+      if (refreshToken) {
+        try {
+          if (!refreshPromise) {
+            refreshPromise = axios.post('/api/auth/refresh', {}, {
+              headers: { Authorization: `Bearer ${refreshToken}` }
+            }).finally(() => { refreshPromise = null; });
+          }
+          const { data } = await refreshPromise;
+          localStorage.setItem('token', data.access_token);
+          originalRequest.headers['Authorization'] = `Bearer ${data.access_token}`;
+          return api(originalRequest);
+        } catch (refreshError) {
+          // Refresh token is invalid/expired too - fall through to logout below.
+        }
+      }
+
       localStorage.removeItem('token');
+      localStorage.removeItem('refresh_token');
       window.location.href = '/login';
     }
-    
+
     return Promise.reject(error);
   }
 );

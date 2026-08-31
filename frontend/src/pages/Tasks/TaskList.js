@@ -65,10 +65,16 @@ const TaskList = () => {
     return submissions.some(submission => submission.task.id === taskId);
   };
   
-  // For students: Get submission ID for a completed task
+  // For students: Get the latest submission (attempt) for a completed task - a task can now
+  // have more than one submission after a resubmission, so pick the highest attempt_number
+  // rather than the first match.
   const getSubmissionId = (taskId) => {
-    const submission = submissions.find(sub => sub.task.id === taskId);
-    return submission ? submission.id : null;
+    const taskSubmissions = submissions.filter(sub => sub.task.id === taskId);
+    if (taskSubmissions.length === 0) return null;
+    const latest = taskSubmissions.reduce((a, b) => (
+      (b.attempt_number || 1) > (a.attempt_number || 1) ? b : a
+    ));
+    return latest.id;
   };
   
   // Filter tasks based on selected tab

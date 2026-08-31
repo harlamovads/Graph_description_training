@@ -20,18 +20,23 @@ import submissionService from '../../services/submissionService';
 import RichTextEditor from '../../components/common/RichTextEditor';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorBox from '../../components/common/ErrorBox';
+import useActivityHeartbeat from '../../utils/useActivityHeartbeat';
 
 const SubmissionCreate = () => {
   const { id } = useParams(); // Task ID
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  
+
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [task, setTask] = useState(null);
   const [content, setContent] = useState('');
-  
+
+  // Tracks active time spent on this task while the page is open, so the teacher's stats
+  // dashboard can show it (see backend/routes/activity.py).
+  useActivityHeartbeat('task', id, !loading && !!task);
+
   useEffect(() => {
     const fetchTask = async () => {
       try {

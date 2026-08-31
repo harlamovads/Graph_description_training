@@ -36,12 +36,19 @@ class User(db.Model):
 
 class Invitation(db.Model):
     __tablename__ = 'invitations'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(20), unique=True, nullable=False)
     teacher_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    student_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     is_used = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    # Relationship
-    teacher = db.relationship('User')
+
+    # Relationships. Two FKs to users.id (inviting teacher, redeeming student), so each needs
+    # its own foreign_keys hint - otherwise SQLAlchemy can't tell which column a plain
+    # `User.join(Invitation)` should join on (it'll silently pick one, which is what made the
+    # old "students invited via code" lookup in routes/auth.py::get_students always come back
+    # empty - it joined on teacher_id and then filtered for role='student', which a teacher
+    # row never matches).
+    teacher = db.relationship('User', foreign_keys=[teacher_id])
+    student = db.relationship('User', foreign_keys=[student_id])

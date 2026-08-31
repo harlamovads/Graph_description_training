@@ -17,8 +17,10 @@ db = SQLAlchemy(metadata=metadata)
 from backend.models.user import User, Invitation
 from backend.models.task import Task, TaskAssignment
 from backend.models.submission import Submission
-from backend.models.exercise import Exercise, ExerciseAttempt
-from backend.models.sentence import Sentence
+from backend.models.error_log import ErrorLog
+from backend.models.activity_session import ActivitySession
+from backend.models.practice_session import PracticeSession
+from backend.models.practice_assignment import PracticeAssignment
 
 def init_app(app):
     """Initialize the database with the Flask app"""

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import {
   Box,
   Grid,
@@ -24,7 +24,7 @@ import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorBox from '../../components/common/ErrorBox';
 import taskService from '../../services/taskService';
 import submissionService from '../../services/submissionService';
-import exerciseService from '../../services/exerciseService';
+import practiceService from '../../services/practiceService';
 
 const StudentDashboard = () => {
   const [loading, setLoading] = useState(true);
@@ -32,45 +32,59 @@ const StudentDashboard = () => {
   const [tasks, setTasks] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [pendingTasks, setPendingTasks] = useState([]);
-  const [exercises, setExercises] = useState([]);
-  
+  const [assignedPractice, setAssignedPractice] = useState([]);
+  const [startingPractice, setStartingPractice] = useState(null);
+
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
         setLoading(true);
-        
+
         // Fetch tasks
         const tasksResponse = await taskService.getTasks();
         setTasks(tasksResponse.tasks || []);
-        
+
         // Fetch submissions
         const submissionsResponse = await submissionService.getStudentSubmissions();
         setSubmissions(submissionsResponse.submissions || []);
-        
-        // Fetch exercises
-        const exercisesResponse = await exerciseService.getExercises();
-        setExercises(exercisesResponse.exercises || []);
-        
+
+        // Fetch teacher-assigned practice sentences not yet started
+        const assignmentsResponse = await practiceService.getAssignments();
+        setAssignedPractice(assignmentsResponse.assignments || []);
+
         // Calculate pending tasks (assigned but not submitted)
         const submittedTaskIds = (submissionsResponse.submissions || []).map(
           submission => submission.task.id
         );
-        
+
         setPendingTasks(
           (tasksResponse.tasks || []).filter(
             task => !submittedTaskIds.includes(task.id)
           )
         );
-        
+
         setLoading(false);
       } catch (err) {
         setError(err.response?.data?.error || 'Failed to load dashboard data');
         setLoading(false);
       }
     };
-    
+
     fetchDashboardData();
   }, []);
+
+  const navigate = useNavigate();
+
+  const handleStartPractice = async (assignment) => {
+    try {
+      setStartingPractice(assignment.id);
+      const session = await practiceService.start(assignment.submission_id, assignment.sentence_index);
+      navigate(`/practice/${session.id}`);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to start practice session');
+      setStartingPractice(null);
+    }
+  };
   
   if (loading) {
     return <LoadingSpinner message="Loading dashboard..." />;
@@ -88,7 +102,7 @@ const StudentDashboard = () => {
       
       <Grid container spacing={3}>
         {/* Pending Tasks */}
-        <Grid item xs={12} md={8}>
+        <Grid item xs={12} md={6}>
           <Paper sx={{ p: 2, height: '100%' }}>
             <Typography variant="h6" gutterBottom>
               <AssignmentIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
@@ -134,15 +148,57 @@ const StudentDashboard = () => {
             )}
           </Paper>
         </Grid>
-        
-        {/* Progress Summary */}
-        <Grid item xs={12} md={4}>
+
+        {/* Assigned Practice - sentences a teacher flagged for practice, shown alongside
+            assigned tasks; starting one enters the same session a self-started one would. */}
+        <Grid item xs={12} md={6}>
           <Paper sx={{ p: 2, height: '100%' }}>
+            <Typography variant="h6" gutterBottom>
+              <FitnessCenterIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
+              Assigned Practice
+            </Typography>
+            <Divider sx={{ mb: 2 }} />
+            {assignedPractice.length > 0 ? (
+              <List>
+                {assignedPractice.map((assignment) => (
+                  <ListItem
+                    key={assignment.id}
+                    divider
+                    secondaryAction={
+                      <Button
+                        variant="contained"
+                        size="small"
+                        color="secondary"
+                        disabled={startingPractice === assignment.id}
+                        onClick={() => handleStartPractice(assignment)}
+                      >
+                        Start Practice
+                      </Button>
+                    }
+                  >
+                    <ListItemText
+                      primary={assignment.task_title}
+                      secondary={assignment.sentence_original}
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            ) : (
+              <Typography variant="body1" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                No practice assigned right now.
+              </Typography>
+            )}
+          </Paper>
+        </Grid>
+
+        {/* Progress Summary */}
+        <Grid item xs={12}>
+          <Paper sx={{ p: 2 }}>
             <Typography variant="h6" gutterBottom>
               Your Progress
             </Typography>
             <Divider sx={{ mb: 2 }} />
-            <Box sx={{ mb: 3 }}>
+            <Box>
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 Tasks Completed
               </Typography>
@@ -155,23 +211,6 @@ const StudentDashboard = () => {
                 </Typography>
               </Box>
             </Box>
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Exercises Completed
-              </Typography>
-              <Typography variant="h4" color="secondary">
-                {exercises.filter(ex => ex.attempts && ex.attempts.length > 0).length}
-              </Typography>
-            </Box>
-            <Button
-              variant="outlined"
-              fullWidth
-              startIcon={<FitnessCenterIcon />}
-              component={RouterLink}
-              to="/exercises"
-            >
-              Practice with Exercises
-            </Button>
           </Paper>
         </Grid>
         
@@ -218,23 +257,13 @@ const StudentDashboard = () => {
                       </Typography>
                     </CardContent>
                     <CardActions>
-                      <Button 
-                        size="small" 
+                      <Button
+                        size="small"
                         component={RouterLink}
                         to={`/submissions/${submission.id}`}
                       >
                         View Details
                       </Button>
-                      {submission.status === 'reviewed' && (
-                        <Button 
-                          size="small"
-                          color="secondary"
-                          component={RouterLink}
-                          to={`/exercises/create/${submission.id}`}
-                        >
-                          Create Exercise
-                        </Button>
-                      )}
                     </CardActions>
                   </Card>
                 </Grid>
