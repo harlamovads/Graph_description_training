@@ -9,7 +9,6 @@ import {
   Grid,
   Divider,
   Card,
-  CardMedia,
   Chip,
   Dialog,
   DialogTitle,
@@ -33,6 +32,11 @@ import taskService from '../../services/taskService';
 import authService from '../../services/authService';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorBox from '../../components/common/ErrorBox';
+import { formatDueDate, isOverdue } from '../../utils/helpers';
+import TaskImage from '../../components/common/TaskImage';
+
+// Sentinel value for the "All students" row in the assign dropdown - never sent to the API.
+const ALL_STUDENTS = '__all_students__';
 
 const ITEM_HEIGHT = 48;
 const ITEM_PADDING_TOP = 8;
@@ -96,14 +100,24 @@ const TaskDetails = () => {
     setAssignDialog(false);
   };
   
+  const allStudentIds = availableStudents.map((s) => s.id);
+  const allSelected = availableStudents.length > 0 && selectedStudents.length === availableStudents.length;
+
   const handleStudentChange = (event) => {
     const {
       target: { value },
     } = event;
-    
-    setSelectedStudents(
-      typeof value === 'string' ? value.split(',') : value,
-    );
+
+    const next = typeof value === 'string' ? value.split(',') : value;
+
+    // The "All students" row is a toggle, not a value of its own: picking it selects everyone
+    // (or clears the selection if everyone is already picked) rather than landing in the list.
+    if (next.includes(ALL_STUDENTS)) {
+      setSelectedStudents(allSelected ? [] : allStudentIds);
+      return;
+    }
+
+    setSelectedStudents(next);
   };
   
   const handleAssignTask = async () => {
@@ -115,13 +129,16 @@ const TaskDetails = () => {
     try {
       setAssignLoading(true);
       
-      await taskService.assignTask(
+      const response = await taskService.assignTask(
         task.id,
         selectedStudents,
         dueDate?.toISOString()
       );
-      
-      dispatch(setAlert('Task assigned successfully', 'success'));
+
+      // The API reports how many assignments it actually created - students who already had
+      // this task are skipped, which matters when assigning to everyone at once.
+      dispatch(setAlert(response?.message || 'Task assigned successfully', 'success'));
+      setSelectedStudents([]);
       handleAssignDialogClose();
       setAssignLoading(false);
     } catch (err) {
@@ -174,7 +191,18 @@ const TaskDetails = () => {
             </Box>
             
             <Divider sx={{ mb: 2 }} />
-            
+
+            {formatDueDate(task.due_date) && (
+              <Typography
+                variant="body2"
+                sx={{ mb: 2, fontWeight: 500 }}
+                color={isOverdue(task.due_date) ? 'error.main' : 'text.secondary'}
+              >
+                Due {formatDueDate(task.due_date)}
+                {isOverdue(task.due_date) ? ' - overdue' : ''}
+              </Typography>
+            )}
+
             <Typography variant="body1" sx={{ whiteSpace: 'pre-line', mb: 2 }}>
               {task.description}
             </Typography>
@@ -183,12 +211,7 @@ const TaskDetails = () => {
           <Grid item xs={12} md={4}>
             <Card>
               {task.image_url && (
-                <CardMedia
-                  component="img"
-                  image={task.image_url}
-                  alt={task.title}
-                  sx={{ height: 200 }}
-                />
+                <TaskImage src={task.image_url} alt={task.title} maxHeight={260} />
               )}
             </Card>
             
@@ -208,9 +231,11 @@ const TaskDetails = () => {
                   <Button
                     variant="outlined"
                     startIcon={<EditIcon />}
+                    component={RouterLink}
+                    to={`/tasks/${task.id}/edit`}
                     fullWidth
                   >
-                    Edit Task
+                    {task.creator_id === user?.id ? 'Edit Task' : 'Edit a Copy'}
                   </Button>
                 </>
               ) : (
@@ -244,6 +269,10 @@ const TaskDetails = () => {
                 onChange={handleStudentChange}
                 input={<OutlinedInput label="Select Students" />}
                 renderValue={(selected) => {
+                  if (selected.length === 0) return '';
+                  if (selected.length === availableStudents.length) {
+                    return `All students (${selected.length})`;
+                  }
                   const selectedNames = selected.map(
                     id => availableStudents.find(s => s.id === id)?.username || ''
                   );
@@ -251,6 +280,18 @@ const TaskDetails = () => {
                 }}
                 MenuProps={MenuProps}
               >
+                {availableStudents.length > 0 && (
+                  <MenuItem value={ALL_STUDENTS}>
+                    <Checkbox
+                      checked={allSelected}
+                      indeterminate={selectedStudents.length > 0 && !allSelected}
+                    />
+                    <ListItemText
+                      primary="All students"
+                      secondary={`${availableStudents.length} total`}
+                    />
+                  </MenuItem>
+                )}
                 {availableStudents.map((student) => (
                   <MenuItem key={student.id} value={student.id}>
                     <Checkbox checked={selectedStudents.indexOf(student.id) > -1} />
@@ -259,6 +300,13 @@ const TaskDetails = () => {
                 ))}
               </Select>
             </FormControl>
+
+            {availableStudents.length === 0 && (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                No students yet - generate an invitation code from your dashboard and share it
+                with them first.
+              </Typography>
+            )}
             
             <TextField
             label="Due Date (Optional)"
@@ -274,12 +322,16 @@ const TaskDetails = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleAssignDialogClose}>Cancel</Button>
-          <Button 
-            onClick={handleAssignTask} 
+          <Button
+            onClick={handleAssignTask}
             variant="contained"
-            disabled={assignLoading}
+            disabled={assignLoading || selectedStudents.length === 0}
           >
-            {assignLoading ? 'Assigning...' : 'Assign Task'}
+            {assignLoading
+              ? 'Assigning...'
+              : allSelected
+                ? `Assign to all (${selectedStudents.length})`
+                : 'Assign Task'}
           </Button>
         </DialogActions>
       </Dialog>

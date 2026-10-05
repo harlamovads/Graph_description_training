@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link as RouterLink } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -20,13 +20,22 @@ import {
   FormControl,
   InputLabel,
   Select,
-  MenuItem
+  MenuItem,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Alert,
+  Link
 } from '@mui/material';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PersonIcon from '@mui/icons-material/Person';
+import LockResetIcon from '@mui/icons-material/LockReset';
 
 import statsService from '../../services/statsService';
+import authService from '../../services/authService';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorBox from '../../components/common/ErrorBox';
 
@@ -42,6 +51,9 @@ const formatScore = (score) => (score !== null && score !== undefined ? score.to
 
 const TeacherStats = () => {
   const navigate = useNavigate();
+  // The profile page links straight to one student (/stats?student=12), so the page can open on
+  // them instead of making the teacher find the row again.
+  const [searchParams] = useSearchParams();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -51,6 +63,10 @@ const TeacherStats = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   // 'all' or a 'YYYY-MM' string - which month's error-type distribution the two charts show.
   const [selectedMonth, setSelectedMonth] = useState('all');
+  // Password reset: the temporary password comes back once, so it's held here to show the
+  // teacher and then discarded when the dialog closes.
+  const [resetResult, setResetResult] = useState(null);
+  const [resetting, setResetting] = useState(null);
 
   useEffect(() => {
     const fetchSummary = async () => {
@@ -67,6 +83,19 @@ const TeacherStats = () => {
 
     fetchSummary();
   }, []);
+
+  const resetPassword = async (student, event) => {
+    event.stopPropagation();   // the card itself opens the student's detail view
+    try {
+      setResetting(student.id);
+      const response = await authService.resetStudentPassword(student.id);
+      setResetResult(response);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not reset that password');
+    } finally {
+      setResetting(null);
+    }
+  };
 
   const openStudent = async (studentId) => {
     setSelectedStudentId(studentId);
@@ -88,6 +117,17 @@ const TeacherStats = () => {
       setDetailLoading(false);
     }
   };
+
+  // Opening this page as /stats?student=12 (from the profile page's student list) has to run the
+  // same load the card click does - selecting the id on its own would show a student with no data.
+  useEffect(() => {
+    const requested = searchParams.get('student');
+    if (requested) {
+      openStudent(Number(requested));
+    }
+    // openStudent is recreated each render; re-running on that would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   if (loading) {
     return <LoadingSpinner message="Loading student stats..." />;
@@ -166,6 +206,16 @@ const TeacherStats = () => {
                     />
                   </CardContent>
                 </CardActionArea>
+                <Box sx={{ px: 2, pb: 1.5 }}>
+                  <Button
+                    size="small"
+                    startIcon={<LockResetIcon />}
+                    disabled={resetting === s.student.id}
+                    onClick={(e) => resetPassword(s.student, e)}
+                  >
+                    {resetting === s.student.id ? 'Resetting...' : 'Reset password'}
+                  </Button>
+                </Box>
               </Card>
             </Grid>
           ))}
@@ -222,7 +272,10 @@ const TeacherStats = () => {
             <Grid container spacing={3} sx={{ mb: 3 }}>
               <Grid item xs={12} md={6}>
                 <Paper sx={{ p: 3 }}>
-                  <Typography variant="h6" gutterBottom>Time Spent &amp; Score per Task</Typography>
+                  <Typography variant="h6" gutterBottom>Submitted Work</Typography>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Every task this student has handed in - click one to open it.
+                  </Typography>
                   <Divider sx={{ mb: 2 }} />
                   <TableContainer>
                     <Table size="small">
@@ -235,11 +288,25 @@ const TeacherStats = () => {
                       </TableHead>
                       <TableBody>
                         {detail.time_per_task.map((t) => (
-                          <TableRow key={t.submission_id}>
+                          <TableRow key={t.submission_id} hover>
                             <TableCell>
-                              {t.task_title}
+                              {/* Each row opens the work itself. Submitted essays used to be
+                                  unreachable once reviewed, so a teacher could never look back
+                                  at what a student actually wrote. */}
+                              <Link
+                                component={RouterLink}
+                                to={`/submissions/${t.submission_id}/review`}
+                                underline="hover"
+                              >
+                                {t.task_title}
+                              </Link>
                               {t.is_resubmission && (
                                 <Chip size="small" label={`Resubmission ${t.attempt_number - 1}`} sx={{ ml: 1 }} />
+                              )}
+                              {t.submitted_at && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                  {new Date(t.submitted_at).toLocaleDateString()}
+                                </Typography>
                               )}
                             </TableCell>
                             <TableCell align="right">{formatScore(t.score)}</TableCell>
@@ -264,6 +331,13 @@ const TeacherStats = () => {
                   </Typography>
                   <Typography variant="body2">
                     Sentences practiced: {detail.practice_sessions.total_sentences_completed}
+                  </Typography>
+                  {/* Where the practice came from: work the student handed in, versus a sentence
+                      they brought themselves. */}
+                  <Typography variant="body2">
+                    From submitted work: {detail.practice_sessions.total_from_submissions ?? 0}
+                    {' · '}
+                    From their own sentences: {detail.practice_sessions.total_from_own_sentences ?? 0}
                   </Typography>
                   <Typography variant="body2">
                     Total time: {formatSeconds(detail.practice_sessions.total_time_spent_seconds)}
@@ -323,6 +397,39 @@ const TeacherStats = () => {
           </Box>
         )
       )}
+      <Dialog open={!!resetResult} onClose={() => setResetResult(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Temporary password</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {resetResult?.message}
+          </DialogContentText>
+          <Paper
+            elevation={0}
+            sx={{
+              p: 2, mt: 2, bgcolor: '#f0f7ff', textAlign: 'center',
+              fontFamily: 'monospace', fontSize: '1.4rem', letterSpacing: '0.08em'
+            }}
+          >
+            {resetResult?.temporary_password}
+          </Paper>
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            This is shown once and cannot be retrieved again - copy it now. The student's old
+            password no longer works.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            variant="contained"
+            onClick={() => {
+              navigator.clipboard.writeText(resetResult?.temporary_password || '');
+              setResetResult(null);
+            }}
+          >
+            Copy and close
+          </Button>
+          <Button onClick={() => setResetResult(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

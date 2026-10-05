@@ -16,8 +16,12 @@ class PracticeSession(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    submission_id = db.Column(db.Integer, db.ForeignKey('submissions.id'), nullable=False)
-    sentence_index = db.Column(db.Integer, nullable=False)  # the sentence's `id` within
+    # Null for a session the student started from a sentence they typed themselves rather than
+    # from one of their submissions (see practice_service.start_manual_session). Everything
+    # downstream - rounds, queue, error logging, teacher review - works the same either way;
+    # only the origin differs, which to_dict() reports as `source`.
+    submission_id = db.Column(db.Integer, db.ForeignKey('submissions.id'), nullable=True)
+    sentence_index = db.Column(db.Integer, nullable=True)  # the sentence's `id` within
                                                               # submission.analysis_result['sentences']
 
     status = db.Column(db.String(20), nullable=False, default='in_progress')  # in_progress | completed | stopped
@@ -69,6 +73,9 @@ class PracticeSession(db.Model):
             'student_id': self.student_id,
             'submission_id': self.submission_id,
             'sentence_index': self.sentence_index,
+            # 'submission' or 'manual' - derived rather than stored, so the two can never
+            # disagree about where a session came from.
+            'source': 'submission' if self.submission_id is not None else 'manual',
             'status': self.status,
             'current_step': self.current_step,
             'original_sentence': self.original_sentence,

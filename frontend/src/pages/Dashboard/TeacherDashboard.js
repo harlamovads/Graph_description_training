@@ -19,13 +19,15 @@ import {
   DialogTitle,
   DialogContent,
   DialogContentText,
-  DialogActions
+  DialogActions,
+  Alert
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import SchoolIcon from '@mui/icons-material/School';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import GradingIcon from '@mui/icons-material/Grading';
 import InsightsIcon from '@mui/icons-material/Insights';
+import AutorenewIcon from '@mui/icons-material/Autorenew';
 
 import { setAlert } from '../../redux/actions/uiActions';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -48,6 +50,8 @@ const TeacherDashboard = () => {
   const [invitationDialog, setInvitationDialog] = useState(false);
   const [invitationCode, setInvitationCode] = useState('');
   const [practiceSessionsThisWeek, setPracticeSessionsThisWeek] = useState(0);
+  const [confirmingRegenerate, setConfirmingRegenerate] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -89,7 +93,7 @@ const TeacherDashboard = () => {
     fetchDashboardData();
   }, []);
   
-  const generateInvitation = async () => {
+  const showInvitationCode = async () => {
     try {
       setLoading(true);
       const response = await authService.generateInvitation();
@@ -97,13 +101,31 @@ const TeacherDashboard = () => {
       setInvitationDialog(true);
       setLoading(false);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to generate invitation code');
+      setError(err.response?.data?.error || 'Failed to load your invitation code');
       setLoading(false);
     }
   };
   
   const handleCloseDialog = () => {
     setInvitationDialog(false);
+    setConfirmingRegenerate(false);
+  };
+
+  const regenerateInvitationCode = async () => {
+    try {
+      setRegenerating(true);
+      const response = await authService.regenerateInvitation();
+      setInvitationCode(response.code);
+      setConfirmingRegenerate(false);
+      dispatch(setAlert(response.message || 'Invitation code regenerated', 'success'));
+    } catch (err) {
+      dispatch(setAlert(
+        err.response?.data?.error || 'Failed to regenerate the invitation code',
+        'error'
+      ));
+    } finally {
+      setRegenerating(false);
+    }
   };
   
   const copyInvitationCode = () => {
@@ -146,10 +168,10 @@ const TeacherDashboard = () => {
               <Button
                 variant="outlined"
                 startIcon={<SchoolIcon />}
-                onClick={generateInvitation}
+                onClick={showInvitationCode}
                 fullWidth
               >
-                Generate Invitation Code
+                Show Invitation Code
               </Button>
               <Button
                 variant="outlined"
@@ -320,10 +342,12 @@ const TeacherDashboard = () => {
         open={invitationDialog}
         onClose={handleCloseDialog}
       >
-        <DialogTitle>Invitation Code Generated</DialogTitle>
+        <DialogTitle>Your Invitation Code</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Share this code with your students to invite them to your class:
+            Share this code with your students to invite them to your class. It's your
+            permanent code - the same one works for everyone, however many students you
+            invite:
           </DialogContentText>
           <Paper
             elevation={0}
@@ -339,12 +363,46 @@ const TeacherDashboard = () => {
           >
             {invitationCode}
           </Paper>
+
+          {confirmingRegenerate && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              Generating a new code immediately stops the current one from working. Students
+              who already joined keep their place - but anyone still holding the old code will
+              need the new one.
+            </Alert>
+          )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDialog}>Close</Button>
-          <Button variant="contained" onClick={copyInvitationCode}>
-            Copy Code
-          </Button>
+        <DialogActions sx={{ flexWrap: 'wrap', gap: 1, px: 3, pb: 2 }}>
+          {confirmingRegenerate ? (
+            <>
+              <Button onClick={() => setConfirmingRegenerate(false)} disabled={regenerating}>
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                color="warning"
+                onClick={regenerateInvitationCode}
+                disabled={regenerating}
+              >
+                {regenerating ? 'Generating...' : 'Yes, replace it'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                color="inherit"
+                startIcon={<AutorenewIcon />}
+                onClick={() => setConfirmingRegenerate(true)}
+                sx={{ mr: 'auto' }}
+              >
+                Generate new code
+              </Button>
+              <Button onClick={handleCloseDialog}>Close</Button>
+              <Button variant="contained" onClick={copyInvitationCode}>
+                Copy Code
+              </Button>
+            </>
+          )}
         </DialogActions>
       </Dialog>
     </Box>

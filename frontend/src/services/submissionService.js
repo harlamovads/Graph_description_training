@@ -35,6 +35,13 @@ const submissionService = {
     });
 
     return response.data;
+  },
+
+  // Teacher annotations on the student's text. Saved on their own, independently of the review,
+  // so a teacher can annotate while reading and keep annotating after the review is sent.
+  saveAnnotations: async (submissionId, annotations) => {
+    const response = await api.put(`/submissions/${submissionId}/annotations`, { annotations });
+    return response.data;
   }
 };
 

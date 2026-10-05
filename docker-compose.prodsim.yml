@@ -1,0 +1,29 @@
+# Simulates the target VPS: 8 GB RAM total, 4 cores.
+# The 8 GB has to cover the host OS and Postgres too, so the app gets ~6.5 GB:
+#   8.0 GB  total
+#  -0.75 GB Postgres
+#  -0.7  GB Debian + docker daemon + sshd
+#  = 6.5  GB for the application container
+# memswap_limit == memory disables swap, matching a VPS where swapping would wreck latency.
+services:
+  postgres:
+    memswap_limit: 768m
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+          cpus: '1'
+
+  language-learning-app:
+    # Load testing creates hundreds of accounts in minutes, which the production registration
+    # limit (200/hour) correctly blocks. Raised HERE ONLY - this file is the test harness, the
+    # real limits live in docker-compose.yml / the app defaults.
+    environment:
+      - RATELIMIT_REGISTER=100000 per hour
+      - RATELIMIT_DEFAULT=100000 per hour
+    memswap_limit: 6656m
+    deploy:
+      resources:
+        limits:
+          memory: 6656m
+          cpus: '4'

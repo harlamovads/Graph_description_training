@@ -1,0 +1,31 @@
+# Resource caps for stress testing, kept out of the main compose file so the committed
+# deployment config is unchanged. Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.stress.yml up -d
+#
+# Note: the base file already uses `deploy.resources.limits`, and Compose refuses to mix that
+# with the short-form `mem_limit`/`cpus` keys, so the caps here use the same `deploy` form.
+# `memswap_limit` has no `deploy` equivalent and is set on its own.
+#
+# Why each cap exists:
+#  - memory: a hard ceiling enforced by cgroups. Exceeding it kills the container, not the
+#    host, so a runaway load test can't eat the machine.
+#  - memswap_limit == memory: disables swap for the container. Without this the app can use
+#    its memory limit again in swap, which is what actually makes a Windows/WSL host crawl.
+#  - cpus: leaves cores free for the desktop, and pins the measurement to a known CPU budget
+#    so the numbers mean something when sizing a server.
+services:
+  postgres:
+    memswap_limit: 1g
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '2'
+
+  language-learning-app:
+    memswap_limit: 8g
+    deploy:
+      resources:
+        limits:
+          memory: 8g
+          cpus: '12'

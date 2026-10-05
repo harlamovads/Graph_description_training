@@ -8,16 +8,25 @@ ERRANT toolkit (https://github.com/chrisjbryant/errant). This is what both the s
 -facing highlight and the per-student error log (feature: "errors made + ERRANT types") are
 built from.
 """
+import threading
+
 import errant
 
 _annotator = None
+_annotator_lock = threading.Lock()
 
 
 def get_annotator():
-    """Lazily load a single shared ERRANT annotator (spaCy en_core_web_sm under the hood)."""
+    """Lazily load a single shared ERRANT annotator (spaCy en_core_web_sm under the hood).
+
+    Locked for the same reason as get_model(): without it, simultaneous first requests each
+    load their own spaCy pipeline.
+    """
     global _annotator
     if _annotator is None:
-        _annotator = errant.load('en')
+        with _annotator_lock:
+            if _annotator is None:
+                _annotator = errant.load('en')
     return _annotator
 
 

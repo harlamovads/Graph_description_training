@@ -10,7 +10,7 @@ import {
   TextField,
   Divider,
   Card,
-  CardMedia
+  Alert
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SendIcon from '@mui/icons-material/Send';
@@ -22,6 +22,9 @@ import practiceService from '../../services/practiceService';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorBox from '../../components/common/ErrorBox';
 import GrammarDiffView from '../../components/common/GrammarDiffView';
+import TaskImage from '../../components/common/TaskImage';
+import AnnotatableText from '../../components/common/AnnotatableText';
+import { htmlToPlainText } from '../../utils/helpers';
 
 // Score must be a number 0-10, int or float (e.g. 9.5) - not a dropdown, just validated
 // free-form input. Empty is allowed (score is optional).
@@ -47,6 +50,12 @@ const SubmissionReview = () => {
   const [corrections, setCorrections] = useState({});
   const [assignedSentences, setAssignedSentences] = useState({});
   const [assigning, setAssigning] = useState(null);
+  const [annotations, setAnnotations] = useState([]);
+  const [annotationError, setAnnotationError] = useState(null);
+  // An already-reviewed submission opens read-only rather than being refused outright: a teacher
+  // needs to be able to look back at work they have already marked (reachable from a student's
+  // statistics page). Annotating stays available - it is a reading aid, not part of the verdict.
+  const alreadyReviewed = submission?.status === 'reviewed';
 
   useEffect(() => {
     const fetchSubmission = async () => {
@@ -60,6 +69,7 @@ const SubmissionReview = () => {
           initialCorrections[sentence.id] = sentence.teacher_corrected || sentence.corrected || sentence.original;
         });
         setCorrections(initialCorrections);
+        setAnnotations(response.teacher_annotations || []);
 
         setLoading(false);
       } catch (err) {
@@ -70,6 +80,20 @@ const SubmissionReview = () => {
 
     fetchSubmission();
   }, [id]);
+
+  // Persist on every change: the teacher never presses "save annotations", the notes are simply
+  // there. On failure the local state is rolled back, so what is on screen is what is stored.
+  const handleAnnotationsChange = async (next) => {
+    const previous = annotations;
+    setAnnotations(next);
+    setAnnotationError(null);
+    try {
+      await submissionService.saveAnnotations(id, next);
+    } catch (err) {
+      setAnnotations(previous);
+      setAnnotationError(err.response?.data?.error || 'Could not save that note - please retry.');
+    }
+  };
 
   const handleFeedbackChange = (e) => {
     setFeedback(e.target.value);
@@ -134,7 +158,12 @@ const SubmissionReview = () => {
   }
   
   if (submitting) {
-    return <LoadingSpinner message="Submitting feedback..." />;
+    return (
+      <LoadingSpinner
+        message="Submitting feedback..."
+        note="Please wait and do not close this page while your feedback is saved."
+      />
+    );
   }
   
   if (error) {
@@ -143,13 +172,6 @@ const SubmissionReview = () => {
   
   if (!submission) {
     return <ErrorBox error="Submission not found" />;
-  }
-  
-  // Prevent reviewing already reviewed submissions
-  if (submission.status === 'reviewed') {
-    return (
-      <ErrorBox error="This submission has already been reviewed" />
-    );
   }
   
   return (
@@ -162,8 +184,19 @@ const SubmissionReview = () => {
         >
           Back to Submission
         </Button>
-        <Typography variant="h4">Review Submission</Typography>
+        <Typography variant="h4">
+          {alreadyReviewed ? 'Reviewed Submission' : 'Review Submission'}
+        </Typography>
       </Box>
+
+      {alreadyReviewed && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          You reviewed this submission on{' '}
+          {submission.reviewed_at ? new Date(submission.reviewed_at).toLocaleString() : 'an earlier date'}.
+          It is shown here for reference; your feedback is below and cannot be resubmitted, but you
+          can still add notes to the student's text.
+        </Alert>
+      )}
       
       <Paper sx={{ p: 3, mb: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -184,21 +217,23 @@ const SubmissionReview = () => {
             <Typography variant="h6" sx={{ mt: 2 }} gutterBottom>
               Student's Response
             </Typography>
-            <Box 
-              sx={{ mt: 1, p: 2, backgroundColor: '#f8f9fa', borderRadius: 1 }}
-              dangerouslySetInnerHTML={{ __html: submission.content }}
+            {annotationError && (
+              <Alert severity="error" sx={{ mb: 1 }} onClose={() => setAnnotationError(null)}>
+                {annotationError}
+              </Alert>
+            )}
+            <AnnotatableText
+              text={htmlToPlainText(submission.content)}
+              annotations={annotations}
+              editable
+              onChange={handleAnnotationsChange}
             />
           </Grid>
           
           <Grid item xs={12} md={4}>
             {submission.task.image_url && (
               <Card>
-                <CardMedia
-                  component="img"
-                  image={submission.task.image_url}
-                  alt={submission.task.title}
-                  sx={{ height: 200 }}
-                />
+                <TaskImage src={submission.task.image_url} alt={submission.task.title} maxHeight={260} />
               </Card>
             )}
           </Grid>
@@ -227,13 +262,14 @@ const SubmissionReview = () => {
                   showCorrected={false}
                 />
                 <Typography variant="subtitle2" sx={{ mt: 2 }} gutterBottom>
-                  Correction (edit if the NN got it wrong):
+                  {alreadyReviewed ? 'Correction:' : 'Correction (edit if the NN got it wrong):'}
                 </Typography>
                 <TextField
                   fullWidth
                   multiline
                   variant="outlined"
                   size="small"
+                  disabled={alreadyReviewed}
                   value={corrections[sentence.id] ?? ''}
                   onChange={(e) => handleCorrectionChange(sentence.id, e.target.value)}
                 />
@@ -261,6 +297,20 @@ const SubmissionReview = () => {
       </Paper>
       
       <Paper sx={{ p: 3 }}>
+        {alreadyReviewed ? (
+          <>
+            <Typography variant="h6" gutterBottom>Your Feedback</Typography>
+            <Typography variant="body1" sx={{ whiteSpace: 'pre-line', mt: 1 }}>
+              {submission.teacher_feedback || 'No written feedback was given.'}
+            </Typography>
+            <Typography variant="subtitle2" sx={{ mt: 3 }}>
+              Score: {submission.score !== null && submission.score !== undefined
+                ? submission.score
+                : 'not scored'}
+            </Typography>
+          </>
+        ) : (
+        <>
         <Typography variant="h6" gutterBottom>Provide Feedback</Typography>
         <Typography variant="body2" color="text.secondary" gutterBottom>
           Add your feedback for the student's submission
@@ -306,6 +356,8 @@ const SubmissionReview = () => {
             Submit Feedback
           </Button>
         </Box>
+        </>
+        )}
       </Paper>
     </Box>
   );

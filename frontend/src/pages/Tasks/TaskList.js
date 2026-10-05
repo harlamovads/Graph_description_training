@@ -8,7 +8,6 @@ import {
   Grid,
   Card,
   CardContent,
-  CardMedia,
   CardActions,
   Chip,
   Tabs,
@@ -20,6 +19,8 @@ import taskService from '../../services/taskService';
 import submissionService from '../../services/submissionService';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorBox from '../../components/common/ErrorBox';
+import { formatDueDate, isOverdue } from '../../utils/helpers';
+import TaskImage from '../../components/common/TaskImage';
 
 const TaskList = () => {
   const { user } = useSelector(state => state.auth);
@@ -144,24 +145,31 @@ const TaskList = () => {
             <Grid item xs={12} sm={6} md={4} key={task.id}>
               <Card>
                 {task.image_url && (
-                  <CardMedia
-                    component="img"
-                    height="140"
-                    image={task.image_url}
-                    alt={task.title}
-                  />
+                  <TaskImage src={task.image_url} alt={task.title} maxHeight={140} />
                 )}
                 <CardContent>
                   <Typography variant="h6" gutterBottom>
                     {task.title}
                   </Typography>
                   {!isTeacher && (
-                    <Box sx={{ mb: 1 }}>
-                      <Chip 
+                    <Box sx={{ mb: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      <Chip
                         size="small"
-                        label={isTaskCompleted(task.id) ? 'Completed' : 'Pending'} 
+                        label={isTaskCompleted(task.id) ? 'Completed' : 'Pending'}
                         color={isTaskCompleted(task.id) ? 'success' : 'warning'}
                       />
+                      {formatDueDate(task.due_date) && (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={`Due ${formatDueDate(task.due_date)}`}
+                          color={
+                            !isTaskCompleted(task.id) && isOverdue(task.due_date)
+                              ? 'error'
+                              : 'default'
+                          }
+                        />
+                      )}
                     </Box>
                   )}
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>

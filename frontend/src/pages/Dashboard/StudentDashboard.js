@@ -12,19 +12,21 @@ import {
   ListItemText,
   Card,
   CardContent,
-  CardMedia,
   CardActions,
   Chip
 } from '@mui/material';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
+import AddIcon from '@mui/icons-material/Add';
 
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorBox from '../../components/common/ErrorBox';
 import taskService from '../../services/taskService';
 import submissionService from '../../services/submissionService';
 import practiceService from '../../services/practiceService';
+import { formatDueDate, isOverdue } from '../../utils/helpers';
+import TaskImage from '../../components/common/TaskImage';
 
 const StudentDashboard = () => {
   const [loading, setLoading] = useState(true);
@@ -135,6 +137,17 @@ const StudentDashboard = () => {
                             {task.description.substring(0, 100)}
                             {task.description.length > 100 ? '...' : ''}
                           </Typography>
+                          {formatDueDate(task.due_date) && (
+                            <Typography
+                              component="span"
+                              variant="body2"
+                              sx={{ display: 'block', mt: 0.5 }}
+                              color={isOverdue(task.due_date) ? 'error.main' : 'text.secondary'}
+                            >
+                              Due {formatDueDate(task.due_date)}
+                              {isOverdue(task.due_date) ? ' - overdue' : ''}
+                            </Typography>
+                          )}
                         </>
                       }
                     />
@@ -153,10 +166,22 @@ const StudentDashboard = () => {
             assigned tasks; starting one enters the same session a self-started one would. */}
         <Grid item xs={12} md={6}>
           <Paper sx={{ p: 2, height: '100%' }}>
-            <Typography variant="h6" gutterBottom>
-              <FitnessCenterIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
-              Assigned Practice
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography variant="h6" gutterBottom>
+                <FitnessCenterIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
+                Practice
+              </Typography>
+              {/* Practice doesn't have to wait for a teacher to assign something - a student
+                  can bring a sentence of their own. */}
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={() => navigate('/practice/new')}
+              >
+                My own sentence
+              </Button>
+            </Box>
             <Divider sx={{ mb: 2 }} />
             {assignedPractice.length > 0 ? (
               <List>
@@ -185,7 +210,7 @@ const StudentDashboard = () => {
               </List>
             ) : (
               <Typography variant="body1" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-                No practice assigned right now.
+                No practice assigned right now - you can still practise a sentence of your own.
               </Typography>
             )}
           </Paper>
@@ -234,12 +259,7 @@ const StudentDashboard = () => {
                 <Grid item xs={12} md={4} key={submission.id}>
                   <Card>
                     {submission.task.image_url && (
-                      <CardMedia
-                        component="img"
-                        height="140"
-                        image={submission.task.image_url}
-                        alt={submission.task.title}
-                      />
+                      <TaskImage src={submission.task.image_url} alt={submission.task.title} maxHeight={140} />
                     )}
                     <CardContent>
                       <Typography variant="h6" gutterBottom>

@@ -120,12 +120,19 @@ def student_detail(teacher_id, student_id):
 
     practice_sessions_list = []
     for session in sessions:
-        submission = Submission.query.get(session.submission_id)
+        # A session the student started from their own sentence has no submission behind it.
+        # It used to be reported as "Unknown task", which read like a data error rather than
+        # what it is - so say where it came from instead.
+        submission = (Submission.query.get(session.submission_id)
+                      if session.submission_id is not None else None)
         assignment = TaskAssignment.query.get(submission.assignment_id) if submission else None
         task = assignment.task if assignment else None
+        is_manual = session.submission_id is None
         practice_sessions_list.append({
             'id': session.id,
-            'task_title': task.title if task else 'Unknown task',
+            'source': 'manual' if is_manual else 'submission',
+            'original_sentence': session.original_sentence,
+            'task_title': None if is_manual else (task.title if task else 'Unknown task'),
             'sentence_index': session.sentence_index,
             'status': session.status,
             'sentences_completed': session.sentences_completed,
@@ -158,6 +165,10 @@ def student_detail(teacher_id, student_id):
             'total_completed': len([s for s in sessions if s.status == 'completed']),
             'total_stopped': len([s for s in sessions if s.status == 'stopped']),
             'total_sentences_completed': sum(s.sentences_completed for s in sessions),
+            # Split out because the two are different kinds of practice: one drills errors found
+            # in the student's own submitted work, the other a sentence they brought themselves.
+            'total_from_own_sentences': len([s for s in sessions if s.submission_id is None]),
+            'total_from_submissions': len([s for s in sessions if s.submission_id is not None]),
             'total_time_spent_seconds': sum((s.time_spent_seconds or 0) for s in sessions),
             'sessions': practice_sessions_list,
             'error_distribution': practice_error_by_type,

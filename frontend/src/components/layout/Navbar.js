@@ -14,8 +14,11 @@ import {
 import MenuIcon from '@mui/icons-material/Menu';
 import AccountCircle from '@mui/icons-material/AccountCircle';
 
+import ChangePasswordDialog from '../common/ChangePasswordDialog';
+
 const Navbar = ({ toggleDrawer, isAuthenticated, user, onLogout }) => {
   const [anchorEl, setAnchorEl] = React.useState(null);
+  const [passwordDialog, setPasswordDialog] = React.useState(false);
 
   const handleMenu = (event) => {
     setAnchorEl(event.currentTarget);
@@ -88,6 +91,9 @@ const Navbar = ({ toggleDrawer, isAuthenticated, user, onLogout }) => {
                   Practice Sessions
                 </MenuItem>
               )}
+              <MenuItem onClick={() => { setPasswordDialog(true); handleClose(); }}>
+                Change password
+              </MenuItem>
               <MenuItem onClick={handleLogout}>Logout</MenuItem>
             </Menu>
           </Box>
@@ -102,6 +108,7 @@ const Navbar = ({ toggleDrawer, isAuthenticated, user, onLogout }) => {
           </Box>
         )}
       </Toolbar>
+      <ChangePasswordDialog open={passwordDialog} onClose={() => setPasswordDialog(false)} />
     </AppBar>
   );
 };

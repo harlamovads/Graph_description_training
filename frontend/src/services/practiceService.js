@@ -10,6 +10,13 @@ const practiceService = {
     return response.data;
   },
 
+  // Start practice from a sentence the student typed and marked up themselves. Their own
+  // corrections define the target; the neural network is not consulted.
+  startManual: async (sentence, marks) => {
+    const response = await api.post('/practice/start-manual', { sentence, marks });
+    return response.data;
+  },
+
   getSession: async (sessionId) => {
     const response = await api.get(`/practice/${sessionId}`);
     return response.data;

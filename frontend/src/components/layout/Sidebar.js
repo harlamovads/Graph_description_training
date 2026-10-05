@@ -7,6 +7,7 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
+  ListItemButton,
   Divider,
   Toolbar,
   Typography
@@ -18,7 +19,9 @@ import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
 import PersonIcon from '@mui/icons-material/Person';
 import SchoolIcon from '@mui/icons-material/School';
 
-const drawerWidth = 240;
+// Wider than MUI's usual 240: the account row at the bottom carries a username and an email,
+// which wrapped awkwardly at the narrower width.
+const drawerWidth = 288;
 
 const Sidebar = ({ open, toggleDrawer, user }) => {
   const isTeacher = user?.role === 'teacher';
@@ -28,8 +31,15 @@ const Sidebar = ({ open, toggleDrawer, user }) => {
       variant="persistent"
       open={open}
       sx={{
-        width: drawerWidth,
+        // Only reserve space while the drawer is actually open. A persistent Drawer slides its
+        // paper out of view when closed but its root keeps whatever width it was given, so a
+        // fixed width here left an empty gutter down the left of every page with the menu shut.
+        width: open ? drawerWidth : 0,
         flexShrink: 0,
+        transition: (theme) => theme.transitions.create('width', {
+          easing: theme.transitions.easing.sharp,
+          duration: theme.transitions.duration.enteringScreen,
+        }),
         '& .MuiDrawer-paper': {
           width: drawerWidth,
           boxSizing: 'border-box',
@@ -37,9 +47,9 @@ const Sidebar = ({ open, toggleDrawer, user }) => {
       }}
     >
       <Toolbar />
-      <Box sx={{ overflow: 'auto', mt: 2 }}>
-        <Box sx={{ px: 2, mb: 2 }}>
-          <Typography variant="subtitle1" color="primary">
+      <Box sx={{ overflow: 'auto', mt: 2, '& .MuiListItemText-primary': { fontSize: '1rem' } }}>
+        <Box sx={{ px: 2.5, mb: 2 }}>
+          <Typography variant="h6" color="primary">
             {isTeacher ? 'Teacher Portal' : 'Student Portal'}
           </Typography>
         </Box>
@@ -90,16 +100,18 @@ const Sidebar = ({ open, toggleDrawer, user }) => {
         <Divider sx={{ my: 2 }} />
         
         <List>
-          {/* User Role Indicator */}
-          <ListItem>
+          {/* The account row doubles as the way into the profile page - it is where people
+              already look for "my account". */}
+          <ListItemButton component={RouterLink} to="/profile">
             <ListItemIcon>
               {isTeacher ? <SchoolIcon /> : <PersonIcon />}
             </ListItemIcon>
-            <ListItemText 
-              primary={isTeacher ? 'Teacher Account' : 'Student Account'}
-              secondary={user?.email}
+            <ListItemText
+              primary={user?.username || (isTeacher ? 'Teacher Account' : 'Student Account')}
+              secondary={isTeacher ? 'Teacher - view profile' : 'Student - view profile'}
+              primaryTypographyProps={{ fontWeight: 500 }}
             />
-          </ListItem>
+          </ListItemButton>
         </List>
       </Box>
     </Drawer>

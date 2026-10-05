@@ -41,6 +41,28 @@ const PracticeSession = () => {
 
   useActivityHeartbeat('exercise', sessionId, !loading && !!session && session.status === 'in_progress');
 
+  // A practice round is a typing exercise: the student is meant to reproduce the corrected
+  // sentence themselves, not lift it off the screen. So the displayed text isn't selectable
+  // or copyable, and the answer box refuses pasted/dragged-in text. This is a deterrent, not
+  // a security control - anything client-side can be worked around by someone determined.
+  const blockCopy = (e) => {
+    e.preventDefault();
+    dispatch(setAlert('Copying is disabled in practice - please type the sentence yourself', 'warning'));
+  };
+
+  const blockPaste = (e) => {
+    e.preventDefault();
+    dispatch(setAlert('Pasting is disabled in practice - please type the sentence yourself', 'warning'));
+  };
+
+  // Spread onto the read-only panels (sentence, prompt, examples, feedback diff).
+  const noCopyProps = {
+    onCopy: blockCopy,
+    onCut: blockCopy,
+    onContextMenu: (e) => e.preventDefault(),
+    onDragStart: (e) => e.preventDefault()
+  };
+
   const fetchSession = useCallback(async () => {
     try {
       setLoading(true);
@@ -57,6 +79,17 @@ const PracticeSession = () => {
     fetchSession();
   }, [fetchSession]);
 
+  // Set when the server is at capacity (503). A banner, not a toast: the message is longer than
+  // a 5-second toast gives anyone time to read.
+  const [serverBusy, setServerBusy] = useState(null);
+
+  // A session started from the student's own sentence has no submission to go back to, so both
+  // "back" links point at the dashboard instead of /submissions/null.
+  const backTo = session?.submission_id
+    ? `/submissions/${session.submission_id}`
+    : '/student-dashboard';
+  const backLabel = session?.submission_id ? 'Back to Submission' : 'Back to Dashboard';
+
   const handleSubmit = async () => {
     if (!text.trim()) {
       dispatch(setAlert('Please write a sentence before submitting', 'error'));
@@ -64,16 +97,30 @@ const PracticeSession = () => {
     }
     try {
       setSubmitting(true);
+      setServerBusy(null);
       setSubmittedText(text);
       const response = await practiceService.submitRound(sessionId, text);
       setSession(response.session);
-      setFeedback({ resolved: response.resolved, edits: response.edits, target: response.target });
+      setFeedback({
+        resolved: response.resolved,
+        edits: response.edits,
+        target: response.target,
+        // Which round this feedback belongs to. The two rounds are checked against different
+        // things - a known target vs. the student's own new sentence - so they cannot share
+        // one message without one of them being wrong.
+        stepType: response.step_type
+      });
       if (response.resolved) {
         setText('');
       }
       setSubmitting(false);
     } catch (err) {
-      dispatch(setAlert(err.response?.data?.error || 'Failed to submit', 'error'));
+      if (err.response?.status === 503) {
+        setServerBusy(err.response.data?.error
+          || 'The server is busy right now. Please try again in a moment.');
+      } else {
+        dispatch(setAlert(err.response?.data?.error || 'Failed to submit', 'error'));
+      }
       setSubmitting(false);
     }
   };
@@ -105,10 +152,10 @@ const PracticeSession = () => {
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           <Button
             startIcon={<ArrowBackIcon />}
-            onClick={() => navigate(`/submissions/${session.submission_id}`)}
+            onClick={() => navigate(backTo)}
             sx={{ mr: 2 }}
           >
-            Back to Submission
+            {backLabel}
           </Button>
           <Typography variant="h4">Practice</Typography>
         </Box>
@@ -132,13 +179,13 @@ const PracticeSession = () => {
               Time spent: {Math.round(session.time_spent_seconds / 60)} min
             </Typography>
           )}
-          <Button variant="contained" component={RouterLink} to={`/submissions/${session.submission_id}`}>
-            Back to Submission
+          <Button variant="contained" component={RouterLink} to={backTo}>
+            {backLabel}
           </Button>
         </Paper>
       ) : (
         <>
-          <Paper sx={{ p: 3, mb: 3 }}>
+          <Paper sx={{ p: 3, mb: 3, userSelect: 'none' }} {...noCopyProps}>
             <Chip
               size="small"
               label={`Sentences completed: ${session.sentences_completed}`}
@@ -184,9 +231,11 @@ const PracticeSession = () => {
           </Paper>
 
           {feedback && !feedback.resolved && (
-            <Paper sx={{ p: 3, mb: 3 }}>
+            <Paper sx={{ p: 3, mb: 3, userSelect: 'none' }} {...noCopyProps}>
               <Alert severity="warning" sx={{ mb: 2 }}>
-                Not quite - here's the difference between what you wrote and the target.
+                {feedback.stepType === 'practice_item'
+                  ? "Your sentence still has something to fix - here's what the checker found."
+                  : "Not quite - here's the difference between what you wrote and the target."}
               </Alert>
               <GrammarDiffView
                 original={submittedText}
@@ -202,6 +251,11 @@ const PracticeSession = () => {
           )}
 
           <Paper sx={{ p: 3 }}>
+            {serverBusy && (
+              <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setServerBusy(null)}>
+                {serverBusy} Your sentence is still here - press Submit again shortly.
+              </Alert>
+            )}
             <TextField
               fullWidth
               multiline
@@ -209,6 +263,8 @@ const PracticeSession = () => {
               placeholder="Write your sentence here..."
               value={text}
               onChange={(e) => setText(e.target.value)}
+              onPaste={blockPaste}
+              onDrop={blockPaste}
               disabled={submitting}
             />
             <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>

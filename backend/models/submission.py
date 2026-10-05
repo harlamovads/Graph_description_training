@@ -27,6 +27,14 @@ class Submission(db.Model):
     # Distinct from practice sessions, which are never scored.
     score = db.Column(db.Float, nullable=True)
 
+    # Free-form teacher annotations on the student's text: a JSON list of
+    # {id, type: 'correction'|'comment', start, end, quoted_text, content}. Offsets are
+    # character positions into the PLAIN TEXT of `content` (see the frontend's htmlToPlainText -
+    # both sides must derive it the same way), not into the HTML, so editing the markup of the
+    # renderer can never silently shift where a teacher's note points. quoted_text is stored
+    # alongside so a stale annotation can be spotted rather than mis-highlighting other words.
+    teacher_annotations = db.Column(db.Text)
+
     def get_analysis_result(self):
         if self.analysis_result:
             return json.loads(self.analysis_result)
@@ -35,6 +43,17 @@ class Submission(db.Model):
     def set_analysis_result(self, result):
         self.analysis_result = json.dumps(result)
    
+    def get_teacher_annotations(self):
+        if not self.teacher_annotations:
+            return []
+        try:
+            return json.loads(self.teacher_annotations)
+        except ValueError:
+            return []
+
+    def set_teacher_annotations(self, annotations):
+        self.teacher_annotations = json.dumps(annotations or [])
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -49,5 +68,6 @@ class Submission(db.Model):
             'time_spent_seconds': self.time_spent_seconds,
             'attempt_number': self.attempt_number,
             'parent_submission_id': self.parent_submission_id,
-            'score': self.score
+            'score': self.score,
+            'teacher_annotations': self.get_teacher_annotations()
         }

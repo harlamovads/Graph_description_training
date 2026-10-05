@@ -72,7 +72,8 @@ const PracticeSessionList = () => {
             <TableHead>
               <TableRow>
                 <TableCell>Student</TableCell>
-                <TableCell>Task</TableCell>
+                <TableCell>From</TableCell>
+                <TableCell>Sentence practised</TableCell>
                 <TableCell align="right">Sentences</TableCell>
                 <TableCell align="right">Time</TableCell>
                 <TableCell>Status</TableCell>
@@ -88,7 +89,20 @@ const PracticeSessionList = () => {
                   onClick={() => navigate(`/practice-review/${s.id}`)}
                 >
                   <TableCell>{s.student?.username}</TableCell>
-                  <TableCell>{s.task_title}</TableCell>
+                  <TableCell>
+                    {/* A session started from a sentence the student wrote themselves has no
+                        task behind it, so this column used to be blank for them. */}
+                    {s.source === 'manual' ? (
+                      <Chip size="small" variant="outlined" color="secondary" label="Own sentence" />
+                    ) : (
+                      s.task_title || <em>Task removed</em>
+                    )}
+                  </TableCell>
+                  <TableCell sx={{ maxWidth: 320 }}>
+                    <Typography variant="body2" noWrap title={s.original_sentence}>
+                      {s.original_sentence}
+                    </Typography>
+                  </TableCell>
                   <TableCell align="right">{s.sentences_completed}</TableCell>
                   <TableCell align="right">{formatSeconds(s.time_spent_seconds)}</TableCell>
                   <TableCell><Chip size="small" label={s.status} color={statusColor(s.status)} /></TableCell>
@@ -96,7 +110,7 @@ const PracticeSessionList = () => {
                 </TableRow>
               ))}
               {sessions.length === 0 && (
-                <TableRow><TableCell colSpan={6}>No practice sessions yet.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7}>No practice sessions yet.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -142,7 +156,27 @@ const PracticeSessionDetail = () => {
       </Box>
 
       <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="body2" color="text.secondary">Task: {session.task_title}</Typography>
+        {session.source === 'manual' ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <Chip size="small" variant="outlined" color="secondary" label="Own sentence" />
+            <Typography variant="body2" color="text.secondary">
+              The student wrote this sentence themselves and marked the errors in it, so the
+              corrections below are their own rather than the neural network's.
+            </Typography>
+          </Box>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            Task: {session.task_title || <em>removed</em>}
+          </Typography>
+        )}
+        <Box sx={{ my: 1.5, p: 2, backgroundColor: '#f8f9fa', borderRadius: 1 }}>
+          <Typography variant="caption" color="text.secondary">Sentence practised</Typography>
+          <Typography variant="body1">{session.original_sentence}</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            Target
+          </Typography>
+          <Typography variant="body1">{session.target_corrected}</Typography>
+        </Box>
         <Typography variant="body2" color="text.secondary">
           Status: <Chip size="small" label={session.status} color={statusColor(session.status)} />
         </Typography>

@@ -11,6 +11,7 @@ from backend.models.error_log import log_edits, clear_logs_for_source
 from backend.models.activity_session import close_open_session
 from backend.services.neural_network_service import analyze_submission
 from backend.services import errant_service
+from backend.services.load_manager import manager as load_manager, AtCapacity
 from backend.utils.security import sanitize_input
 
 submissions_bp = Blueprint('submissions', __name__)
@@ -59,51 +60,78 @@ def create_submission():
         attempt_number = 1
         parent_submission_id = None
 
-    # Finalize time tracking for this task, if a heartbeat session was open
-    time_spent_seconds = close_open_session(current_user_id, 'task', task_id)
+    # The write below needs exactly one value off the ORM, so take it and then let go of the
+    # database connection. A request can sit in the analysis queue for minutes, and holding a
+    # pooled connection (plus an idle-in-transaction session in Postgres) for that whole time
+    # would exhaust the pool long before the analysis budget was the real limit.
+    assignment_id = assignment.id
+    db.session.rollback()
 
-    # Create new submission
-    new_submission = Submission(
-        assignment_id=assignment.id,
-        student_id=current_user_id,
-        content=content,
-        status='submitted',
-        time_spent_seconds=time_spent_seconds,
-        attempt_number=attempt_number,
-        parent_submission_id=parent_submission_id
-    )
-
-    db.session.add(new_submission)
-    db.session.commit()
-
-    # Analyze submission with enhanced neural network
+    # Analysis runs under an admission-control slot: a bounded number at a time, the rest
+    # queued, and a clean 503 when the queue is too deep to be worth waiting in. The slot is
+    # taken BEFORE anything is written, so a refusal leaves the student's text in their editor
+    # rather than saving a submission that never gets analysed (which would silently lose its
+    # error statistics). Using `with` means the slot is released on every path, including an
+    # unexpected exception - a leaked slot would permanently shrink capacity.
     try:
-        analysis_result = analyze_submission(content)
+        with load_manager.slot('submission') as waited:
+            if waited > 1:
+                logger.info("Submission for task %s waited %.1fs for an analysis slot",
+                            task_id, waited)
 
-        if analysis_result and 'error' not in analysis_result:
-            new_submission.set_analysis_result(analysis_result)
+            # Finalize time tracking for this task, if a heartbeat session was open
+            time_spent_seconds = close_open_session(current_user_id, 'task', task_id)
+
+            # Create new submission
+            new_submission = Submission(
+                assignment_id=assignment_id,
+                student_id=current_user_id,
+                content=content,
+                status='submitted',
+                time_spent_seconds=time_spent_seconds,
+                attempt_number=attempt_number,
+                parent_submission_id=parent_submission_id
+            )
+
+            db.session.add(new_submission)
             db.session.commit()
 
-            # Log every ERRANT edit found so it feeds the per-student error stats
-            edits_for_log = [
-                (s['id'], s.get('errant_edits', []))
-                for s in analysis_result.get('sentences', [])
-            ]
-            log_edits(current_user_id, 'submission', new_submission.id, edits_for_log)
-            db.session.commit()
-            logger.info("Neural network analysis completed for submission %s", new_submission.id)
-        else:
-            logger.warning("Neural network analysis failed for submission %s: %s",
-                            new_submission.id, analysis_result.get('error') if analysis_result else 'no result')
+            # Analyze submission with enhanced neural network
+            try:
+                analysis_result = analyze_submission(content)
 
-    except Exception as e:
-        logger.exception("Error during neural network analysis for submission %s", new_submission.id)
-        # Continue without analysis rather than failing the submission
+                if analysis_result and 'error' not in analysis_result:
+                    new_submission.set_analysis_result(analysis_result)
+                    db.session.commit()
 
-    return jsonify({
-        "message": "Submission created successfully",
-        "submission": new_submission.to_dict()
-    }), 201
+                    # Log every ERRANT edit found so it feeds the per-student error stats
+                    edits_for_log = [
+                        (s['id'], s.get('errant_edits', []))
+                        for s in analysis_result.get('sentences', [])
+                    ]
+                    log_edits(new_submission.student_id, 'submission', new_submission.id, edits_for_log)
+                    db.session.commit()
+                    logger.info("Neural network analysis completed for submission %s", new_submission.id)
+                else:
+                    logger.warning("Neural network analysis failed for submission %s: %s",
+                                    new_submission.id, analysis_result.get('error') if analysis_result else 'no result')
+
+            except Exception as e:
+                logger.exception("Error during neural network analysis for submission %s", new_submission.id)
+                # Continue without analysis rather than failing the submission
+
+
+            return jsonify({
+                "message": "Submission created successfully",
+                "submission": new_submission.to_dict()
+            }), 201
+
+    except AtCapacity as busy:
+        logger.warning("Refused a submission at capacity: %s", busy.snapshot)
+        response = jsonify({"error": busy.message, "load": busy.snapshot})
+        response.status_code = 503
+        response.headers['Retry-After'] = str(busy.retry_after)
+        return response
 
 @submissions_bp.route('/<int:submission_id>', methods=['GET'])
 @jwt_required()
@@ -231,15 +259,79 @@ def review_submission(submission_id):
         analysis_result['total_errors'] = sum(len(s.get('errant_edits', [])) for s in sentences)
         submission.set_analysis_result(analysis_result)
 
+        # Log against the submission's author, NOT current_user_id - this route runs as the
+        # teacher, so using the caller's id re-attributed every one of the student's errors to
+        # the teacher, and the essay's stats silently dropped to zero for the student.
         clear_logs_for_source('submission', submission.id)
         edits_for_log = [(s['id'], s.get('errant_edits', [])) for s in sentences]
-        log_edits(current_user_id, 'submission', submission.id, edits_for_log)
+        log_edits(submission.student_id, 'submission', submission.id, edits_for_log)
 
     db.session.commit()
 
     return jsonify({
         "message": "Submission reviewed successfully",
         "submission": submission.to_dict()
+    }), 200
+
+@submissions_bp.route('/<int:submission_id>/annotations', methods=['PUT'])
+@jwt_required()
+def save_annotations(submission_id):
+    """Replace the teacher's annotations on a submission's text.
+
+    Separate from the review endpoint on purpose: a teacher annotates while reading, before
+    deciding on feedback, and can keep annotating after the review is submitted. The whole list
+    is replaced each time - these are a handful of small objects, so merging individual ones
+    would add fiddly conflict handling for no benefit.
+    """
+    current_user_id = int(get_jwt_identity())
+    user = User.query.get_or_404(current_user_id)
+
+    if user.role != 'teacher':
+        return jsonify({"error": "Only teachers can annotate submissions"}), 403
+
+    submission = Submission.query.get_or_404(submission_id)
+    assignment = TaskAssignment.query.get(submission.assignment_id)
+    if not assignment or assignment.task.creator_id != current_user_id:
+        return jsonify({"error": "You don't have access to this submission"}), 403
+
+    data = request.get_json() or {}
+    annotations = data.get('annotations')
+    if annotations is None or not isinstance(annotations, list):
+        return jsonify({"error": "annotations must be a list"}), 400
+    if len(annotations) > 500:
+        return jsonify({"error": "Too many annotations"}), 400
+
+    cleaned = []
+    for raw in annotations:
+        if not isinstance(raw, dict):
+            return jsonify({"error": "Each annotation must be an object"}), 400
+        kind = raw.get('type')
+        if kind not in ('correction', 'comment'):
+            return jsonify({"error": "Annotation type must be 'correction' or 'comment'"}), 400
+        try:
+            start = int(raw.get('start'))
+            end = int(raw.get('end'))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Annotation start/end must be numbers"}), 400
+        if start < 0 or end <= start:
+            return jsonify({"error": "Annotation range is invalid"}), 400
+        cleaned.append({
+            'id': str(raw.get('id') or f"{start}-{end}-{kind}")[:64],
+            'type': kind,
+            'start': start,
+            'end': end,
+            # Sanitized like any other teacher-authored text: it is rendered back to the student.
+            'quoted_text': sanitize_input(str(raw.get('quoted_text') or ''))[:2000],
+            'content': sanitize_input(str(raw.get('content') or ''))[:2000]
+        })
+
+    cleaned.sort(key=lambda a: a['start'])
+    submission.set_teacher_annotations(cleaned)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Annotations saved",
+        "teacher_annotations": cleaned
     }), 200
 
 @submissions_bp.route('/student', methods=['GET'])

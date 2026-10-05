@@ -9,7 +9,6 @@ import {
   Paper,
   Grid,
   Card,
-  CardMedia,
   Divider,
   Chip,
   Alert
@@ -25,8 +24,11 @@ import { setAlert } from '../../redux/actions/uiActions';
 import submissionService from '../../services/submissionService';
 import practiceService from '../../services/practiceService';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import { htmlToPlainText } from '../../utils/helpers';
+import AnnotatableText from '../../components/common/AnnotatableText';
 import ErrorBox from '../../components/common/ErrorBox';
 import GrammarDiffView from '../../components/common/GrammarDiffView';
+import TaskImage from '../../components/common/TaskImage';
 
 const SubmissionDetails = () => {
   const { id } = useParams();
@@ -125,12 +127,7 @@ const SubmissionDetails = () => {
           <Grid item xs={12} md={4}>
             {submission.task.image_url && (
               <Card>
-                <CardMedia
-                  component="img"
-                  image={submission.task.image_url}
-                  alt={submission.task.title}
-                  sx={{ height: 200 }}
-                />
+                <TaskImage src={submission.task.image_url} alt={submission.task.title} maxHeight={260} />
               </Card>
             )}
             
@@ -168,10 +165,16 @@ const SubmissionDetails = () => {
       
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="h6" gutterBottom>Student's Response</Typography>
-        <Box 
-          sx={{ mt: 2, p: 2, backgroundColor: '#f8f9fa', borderRadius: 1 }}
-          dangerouslySetInnerHTML={{ __html: submission.content }}
-        />
+        {/* Rendered through AnnotatableText (read-only here) rather than as raw HTML, so the
+            teacher's inline corrections and comments appear on the same characters they were
+            written against - the offsets are into htmlToPlainText's output. With no annotations
+            it is simply the text. */}
+        <Box sx={{ mt: 2 }}>
+          <AnnotatableText
+            text={htmlToPlainText(submission.content)}
+            annotations={submission.teacher_annotations || []}
+          />
+        </Box>
       </Paper>
       
       <Paper sx={{ p: 3, mb: 3 }}>

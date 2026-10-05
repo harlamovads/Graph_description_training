@@ -8,8 +8,8 @@ import {
   Paper,
   Grid,
   Card,
-  CardMedia,
-  Divider
+  Divider,
+  Alert
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SaveIcon from '@mui/icons-material/Save';
@@ -21,6 +21,8 @@ import RichTextEditor from '../../components/common/RichTextEditor';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorBox from '../../components/common/ErrorBox';
 import useActivityHeartbeat from '../../utils/useActivityHeartbeat';
+import { formatDueDate, isOverdue } from '../../utils/helpers';
+import TaskImage from '../../components/common/TaskImage';
 
 const SubmissionCreate = () => {
   const { id } = useParams(); // Task ID
@@ -29,6 +31,10 @@ const SubmissionCreate = () => {
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  // Set when the server refuses the submission because it is at capacity (HTTP 503). Shown as a
+  // persistent banner rather than the usual 5-second toast: the student needs long enough to read
+  // that their text is still here and that retrying shortly is all that is needed.
+  const [serverBusy, setServerBusy] = useState(null);
   const [error, setError] = useState(null);
   const [task, setTask] = useState(null);
   const [content, setContent] = useState('');
@@ -68,6 +74,7 @@ const SubmissionCreate = () => {
     
     try {
       setSubmitting(true);
+      setServerBusy(null);
       
       const response = await submissionService.createSubmission({
         task_id: id,
@@ -77,10 +84,19 @@ const SubmissionCreate = () => {
       dispatch(setAlert('Submission created successfully', 'success'));
       navigate(`/submissions/${response.submission?.id || response.id}`);
     } catch (err) {
-      dispatch(setAlert(
-        err.response?.data?.error || 'Failed to create submission',
-        'error'
-      ));
+      if (err.response?.status === 503) {
+        const retryAfter = Number(err.response.headers?.['retry-after']);
+        setServerBusy({
+          message: err.response.data?.error
+            || 'The server is busy right now. Please try again in a few minutes.',
+          retryAfter: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null
+        });
+      } else {
+        dispatch(setAlert(
+          err.response?.data?.error || 'Failed to create submission',
+          'error'
+        ));
+      }
       setSubmitting(false);
     }
   };
@@ -90,7 +106,15 @@ const SubmissionCreate = () => {
   }
   
   if (submitting) {
-    return <LoadingSpinner message="Submitting your response..." />;
+    return (
+      <LoadingSpinner
+        message="Submitting your response..."
+        variant="analysis"
+        note="Your writing is being checked for grammar errors. This can take a few minutes if
+              several students submit at the same time - please wait and do not close or reload
+              this page, or your submission may be lost."
+      />
+    );
   }
   
   if (error) {
@@ -116,6 +140,16 @@ return (
       
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="h5" gutterBottom>{task.title}</Typography>
+        {formatDueDate(task.due_date) && (
+          <Typography
+            variant="body2"
+            sx={{ mb: 1, fontWeight: 500 }}
+            color={isOverdue(task.due_date) ? 'error.main' : 'text.secondary'}
+          >
+            Due {formatDueDate(task.due_date)}
+            {isOverdue(task.due_date) ? ' - overdue' : ''}
+          </Typography>
+        )}
         <Divider sx={{ mb: 2 }} />
         
         <Grid container spacing={3}>
@@ -128,12 +162,7 @@ return (
           <Grid item xs={12} md={4}>
             {task.image_url && (
               <Card sx={{ mb: 2 }}>
-                <CardMedia
-                  component="img"
-                  image={task.image_url}
-                  alt={task.title}
-                  sx={{ height: 200 }}
-                />
+                <TaskImage src={task.image_url} alt={task.title} maxHeight={260} />
               </Card>
             )}
           </Grid>
@@ -141,6 +170,15 @@ return (
       </Paper>
       
       <Paper sx={{ p: 3 }}>
+        {serverBusy && (
+          <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setServerBusy(null)}>
+            {serverBusy.message}
+            {serverBusy.retryAfter
+              ? ` Estimated wait: about ${Math.max(1, Math.round(serverBusy.retryAfter / 60))} minute(s).`
+              : ''}
+            {' '}Your text is still here - press Submit Response again when you are ready.
+          </Alert>
+        )}
         <Typography variant="h6" gutterBottom>Your Response</Typography>
         <Typography variant="body2" color="text.secondary" gutterBottom>
           Write your response below. Your work will be analyzed for grammatical errors after submission.

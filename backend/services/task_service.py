@@ -49,8 +49,13 @@ def get_tasks_for_user(user):
     :return: List of Task objects
     """
     if user.role == 'teacher':
-        # Teachers see tasks they created
-        return user.tasks_created.all()
+        # Own tasks, plus anything another teacher published to the shared task database.
+        # Without the second half, ticking "Add to task database (can be reused by other
+        # teachers)" had no visible effect for anyone else.
+        own = user.tasks_created.all()
+        shared = Task.query.filter_by(is_from_database=True).all()
+        by_id = {t.id: t for t in own + shared}
+        return list(by_id.values())
     else:  # Student
         # Students see tasks assigned to them
         assignments = TaskAssignment.query.filter_by(student_id=user.id).all()

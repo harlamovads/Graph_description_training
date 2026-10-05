@@ -46,7 +46,11 @@ api.interceptors.response.use(
       error.response.status === 401 &&
       !originalRequest._retry &&
       !originalRequest.url?.includes('/auth/refresh') &&
-      !originalRequest.url?.includes('/auth/login')
+      !originalRequest.url?.includes('/auth/login') &&
+      // Endpoints that verify a password someone just typed: a 401 from these means "wrong
+      // password", not "session expired". Refreshing and retrying would be pointless, and
+      // logging out would throw the user to /login while their dialog was still open.
+      !originalRequest.url?.includes('/auth/change-password')
     ) {
       originalRequest._retry = true;
       const refreshToken = localStorage.getItem('refresh_token');

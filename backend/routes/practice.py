@@ -19,7 +19,11 @@ def _handle_practice_error(f):
         try:
             return f(*args, **kwargs)
         except practice_service.PracticeError as e:
-            return jsonify({"error": e.message}), e.status_code
+            response = jsonify({"error": e.message})
+            response.status_code = e.status_code
+            if getattr(e, 'retry_after', None):
+                response.headers['Retry-After'] = str(e.retry_after)
+            return response
     return wrapped
 
 
@@ -39,6 +43,23 @@ def start():
         return jsonify({"error": "submission_id and sentence_index are required"}), 400
 
     session = practice_service.start_session(current_user_id, submission_id, sentence_index)
+    return jsonify(practice_service.session_state(session)), 201
+
+
+@practice_bp.route('/start-manual', methods=['POST'])
+@jwt_required()
+@_handle_practice_error
+def start_manual():
+    """Start practice from a sentence the student wrote and marked up themselves."""
+    current_user_id = int(get_jwt_identity())
+    user = User.query.get_or_404(current_user_id)
+    if user.role != 'student':
+        return jsonify({"error": "Only students can start a practice session"}), 403
+
+    data = request.get_json() or {}
+    session = practice_service.start_manual_session(
+        current_user_id, data.get('sentence'), data.get('marks') or []
+    )
     return jsonify(practice_service.session_state(session)), 201
 
 
@@ -65,6 +86,7 @@ def submit(session_id):
         'resolved': result['resolved'],
         'edits': result['edits'],
         'target': result['target'],
+        'step_type': result['step_type'],
         'session': practice_service.session_state(result['session'])
     }), 200
 

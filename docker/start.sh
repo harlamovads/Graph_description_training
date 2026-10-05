@@ -20,6 +20,8 @@ flask db upgrade
 # Seed sample data (idempotent - no-op if the database already has data)
 python init_db.py
 
-# Start the Flask application
-echo "Starting Flask application..."
-python app.py
+# Start the application under gunicorn. The Flask development server was never meant to face
+# users: no request timeouts, single-threaded accept loop, and it prints tracebacks on error.
+# See gunicorn.conf.py for why it's one worker with threads and a long timeout.
+echo "Starting application (gunicorn)..."
+exec gunicorn --config gunicorn.conf.py app:app

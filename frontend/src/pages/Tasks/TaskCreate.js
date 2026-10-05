@@ -11,8 +11,7 @@ import {
   FormControlLabel,
   Switch,
   Divider,
-  Card,
-  CardMedia
+  Card
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import SaveIcon from '@mui/icons-material/Save';
@@ -21,6 +20,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { setAlert } from '../../redux/actions/uiActions';
 import taskService from '../../services/taskService';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import TaskImage from '../../components/common/TaskImage';
 
 const TaskCreate = () => {
   const dispatch = useDispatch();
@@ -182,12 +182,7 @@ const TaskCreate = () => {
               
               {previewUrl && (
                 <Card sx={{ mt: 2 }}>
-                  <CardMedia
-                    component="img"
-                    height="200"
-                    image={previewUrl}
-                    alt="Image Preview"
-                  />
+                  <TaskImage src={previewUrl} alt="Image Preview" maxHeight={260} />
                 </Card>
               )}
             </Grid>

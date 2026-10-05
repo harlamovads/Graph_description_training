@@ -19,6 +19,9 @@ import TeacherStats from './pages/Dashboard/TeacherStats';
 // Task Pages
 import TaskList from './pages/Tasks/TaskList';
 import TaskCreate from './pages/Tasks/TaskCreate';
+import TaskEdit from './pages/Tasks/TaskEdit';
+import Profile from './pages/Profile/Profile';
+import PracticeCompose from './pages/Practice/PracticeCompose';
 import TaskDetails from './pages/Tasks/TaskDetails';
 
 // Submission Pages
@@ -30,10 +33,25 @@ import SubmissionReview from './pages/Submissions/SubmissionReview';
 import PracticeSession from './pages/Practice/PracticeSession';
 import { PracticeSessionList, PracticeSessionDetail } from './pages/Practice/TeacherPracticeReview';
 
+// Where each role's home lives. Both the index route and ProtectedRoute's role-mismatch
+// redirect go through this: sending everyone to /dashboard (which is teacher-only) meant a
+// logged-in student bounced / -> /dashboard -> / -> ... forever. Firefox rate-limits that many
+// history calls and throws "The operation is insecure", which kills the render and leaves a
+// blank page. Falling back to /login when there's no user keeps any future gap from looping.
+const homePathFor = (user) => {
+  if (!user) return '/login';
+  return user.role === 'teacher' ? '/dashboard' : '/student-dashboard';
+};
+
+const HomeRedirect = () => {
+  const { user } = useSelector(state => state.auth);
+  return <Navigate to={homePathFor(user)} replace />;
+};
+
 // Protected Route Component
 const ProtectedRoute = ({ children, role }) => {
   const { isAuthenticated, user, loading } = useSelector(state => state.auth);
-  
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
@@ -41,15 +59,15 @@ const ProtectedRoute = ({ children, role }) => {
       </Box>
     );
   }
-  
+
   if (!isAuthenticated) {
-    return <Navigate to="/login" />;
+    return <Navigate to="/login" replace />;
   }
-  
+
   if (role && user.role !== role) {
-    return <Navigate to="/" />;
+    return <Navigate to={homePathFor(user)} replace />;
   }
-  
+
   return children;
 };
 
@@ -93,13 +111,13 @@ function App() {
         }
       >
         {/* Dashboard Routes */}
-        <Route 
-          path="" 
+        <Route
+          path=""
           element={
             <ProtectedRoute>
-              <Navigate to="/dashboard" />
+              <HomeRedirect />
             </ProtectedRoute>
-          } 
+          }
         />
         <Route 
           path="dashboard" 
@@ -122,6 +140,15 @@ function App() {
           element={
             <ProtectedRoute role="teacher">
               <TeacherStats />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="profile"
+          element={
+            <ProtectedRoute>
+              <Profile />
             </ProtectedRoute>
           }
         />
@@ -150,6 +177,14 @@ function App() {
               <TaskDetails />
             </ProtectedRoute>
           } 
+        />
+        <Route
+          path="tasks/:id/edit"
+          element={
+            <ProtectedRoute role="teacher">
+              <TaskEdit />
+            </ProtectedRoute>
+          }
         />
         
         {/* Submission Routes */}
@@ -180,6 +215,14 @@ function App() {
         
         {/* Practice Routes */}
         <Route
+          path="practice/new"
+          element={
+            <ProtectedRoute role="student">
+              <PracticeCompose />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="practice/:sessionId"
           element={
             <ProtectedRoute role="student">
@@ -206,7 +249,7 @@ function App() {
       </Route>
 
       {/* Catch all */}
-      <Route path="*" element={<Navigate to="/" />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

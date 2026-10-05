@@ -2,7 +2,7 @@
 import React from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 
-const LoadingSpinner = ({ message = 'Loading...', variant = 'default' }) => {
+const LoadingSpinner = ({ message = 'Loading...', variant = 'default', note = null }) => {
   const getIcon = () => {
     switch (variant) {
       case 'analysis':
@@ -49,6 +49,16 @@ const LoadingSpinner = ({ message = 'Loading...', variant = 'default' }) => {
       <Typography variant="h6" sx={{ mt: 2 }}>
         {getIcon()} {message}
       </Typography>
+      {note && (
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          align="center"
+          sx={{ mt: 1.5, maxWidth: 420, px: 2 }}
+        >
+          {note}
+        </Typography>
+      )}
     </Box>
   );
 };

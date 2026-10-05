@@ -2,10 +2,13 @@
 """Generates short example sentences for a practice-session "create a sentence" round, via
 DeepSeek's (OpenAI-compatible) chat completions API.
 
-No key configured yet in this environment - `DEEPSEEK_API_KEY` is a placeholder in .env/
-.env.template/docker-compose.yml until a real one is added. Every call here degrades to an
-empty list rather than raising, so the practice flow works (just without example sentences)
-whether the key is missing, invalid, or DeepSeek is unreachable.
+Two kinds of round need examples, and they need different ones:
+  * the student must USE a corrected span ("shows") -> generate_similar_sentences
+  * the student must avoid re-adding a span that was deleted, keeping the structure around where
+    it used to be -> generate_structure_examples
+
+Every call here degrades to an empty list rather than raising, so the practice flow works (just
+without example sentences) whether the key is missing, invalid, or DeepSeek is unreachable.
 """
 import logging
 import requests
@@ -17,11 +20,8 @@ DEEPSEEK_MODEL = 'deepseek-chat'
 REQUEST_TIMEOUT_SECONDS = 15
 
 
-def generate_similar_sentences(context_sentence, target_span, count=3):
-    """Ask DeepSeek for `count` new sentences, each containing `target_span`, styled after
-    `context_sentence` (the practice session's already-corrected sentence). Returns a list of
-    up to `count` plain sentence strings - [] if no API key is configured or the call fails.
-    """
+def _ask(system_prompt, user_prompt, count):
+    """Shared call. Returns up to `count` sentence strings, or [] on any problem at all."""
     api_key = current_app.config.get('DEEPSEEK_API_KEY')
     if not api_key:
         return []
@@ -38,25 +38,8 @@ def generate_similar_sentences(context_sentence, target_span, count=3):
             json={
                 'model': DEEPSEEK_MODEL,
                 'messages': [
-                    {
-                        'role': 'system',
-                        'content': (
-                            'You write short example sentences for a language-learning exercise. '
-                            f'Given a correctly-written context sentence and a target word or '
-                            f'phrase, write exactly {count} new sentences. Each must be '
-                            'grammatically correct English, contain the target word/phrase '
-                            'verbatim, and be a similar length and register to the context '
-                            'sentence. Reply with exactly one sentence per line - no numbering, '
-                            'no bullets, no quotation marks, no extra commentary.'
-                        )
-                    },
-                    {
-                        'role': 'user',
-                        'content': (
-                            f'Context sentence: "{context_sentence}"\n'
-                            f'Target word/phrase: "{target_span}"'
-                        )
-                    }
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': user_prompt}
                 ],
                 'temperature': 0.7,
                 'max_tokens': 200
@@ -70,3 +53,46 @@ def generate_similar_sentences(context_sentence, target_span, count=3):
     except Exception:
         logger.exception('DeepSeek example-sentence generation failed')
         return []
+
+
+def generate_similar_sentences(context_sentence, target_span, count=3):
+    """Examples that each CONTAIN `target_span`, styled after `context_sentence`."""
+    system_prompt = (
+        'You write short example sentences for a language-learning exercise. '
+        f'Given a correctly-written context sentence and a target word or phrase, write exactly '
+        f'{count} new sentences. Each must be grammatically correct English, contain the target '
+        'word/phrase verbatim, and be a similar length and register to the context sentence. '
+        'Reply with exactly one sentence per line - no numbering, no bullets, no quotation '
+        'marks, no extra commentary.'
+    )
+    user_prompt = (
+        f'Context sentence: "{context_sentence}"\n'
+        f'Target word/phrase: "{target_span}"'
+    )
+    return _ask(system_prompt, user_prompt, count)
+
+
+def generate_structure_examples(context_sentence, before, after, removed_text, count=3):
+    """Examples for a DELETION round.
+
+    Here the student's job is the opposite of the case above: something had to be removed, so a
+    good example keeps the grammatical structure around the gap and simply does not contain the
+    removed words. Passing the target span would be meaningless (there isn't one), which is why
+    these rounds used to show no examples at all.
+    """
+    joined = ' '.join(part for part in (before, after) if part)
+    system_prompt = (
+        'You write short example sentences for a language-learning exercise. The student has '
+        'just learned that some words had to be DELETED from a sentence to make it correct. '
+        f'Write exactly {count} new, grammatically correct English sentences that use the same '
+        'grammatical structure as the context sentence around the words shown, and that do NOT '
+        'contain the removed words. Keep them a similar length and register to the context '
+        'sentence. Reply with exactly one sentence per line - no numbering, no bullets, no '
+        'quotation marks, no extra commentary.'
+    )
+    user_prompt = (
+        f'Context sentence: "{context_sentence}"\n'
+        f'Structure to keep (the words around the gap): "{joined}"\n'
+        f'Words that must NOT appear: "{removed_text}"'
+    )
+    return _ask(system_prompt, user_prompt, count)

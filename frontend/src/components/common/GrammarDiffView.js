@@ -88,7 +88,10 @@ const GrammarDiffView = ({
             );
 
             if (suggestionsAboveSpan) {
-              const suggestionText = seg.edit.corrected_text || 'remove';
+              // A deletion has no replacement text, and the word "remove" doesn't read as an
+              // instruction at a glance. Show the span itself struck through instead, which says
+              // "this goes away" without having to be read.
+              const isDeletion = !seg.edit.corrected_text;
               return (
                 <Box key={i} component="span" sx={{ position: 'relative', display: 'inline-block' }}>
                   <Box
@@ -106,10 +109,19 @@ const GrammarDiffView = ({
                       border: '1px solid #a5d6a7',
                       borderRadius: '3px',
                       padding: '0 4px',
-                      lineHeight: 1.5
+                      lineHeight: 1.5,
+                      // Struck through in a neutral grey rather than red: red spans were
+                      // explicitly too aggressive for practice mode, and the strikethrough
+                      // already carries the meaning on its own.
+                      ...(isDeletion && {
+                        textDecoration: 'line-through',
+                        color: '#546e7a',
+                        backgroundColor: '#eceff1',
+                        borderColor: '#b0bec5'
+                      })
                     }}
                   >
-                    {suggestionText}
+                    {isDeletion ? seg.edit.original_text : seg.edit.corrected_text}
                   </Box>
                   {spanBox}
                 </Box>
