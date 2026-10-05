@@ -3,8 +3,14 @@
 Written for whoever administers the server — you, or a colleague with root on the box and no
 prior knowledge of this codebase.
 
-Target hardware: **8 GB RAM, 4-6 cores, 60-80 GB SSD/NVMe, KVM.** Everything below is measured
-against that; §7 has the numbers and what to change if you have 6 cores rather than 4.
+Target hardware: **4 x 3.6 GHz, 8 GB RAM, 80 GB NVMe, KVM.** §7 has the measured capacity, and
+what to change if you ever move to a 6-core box.
+
+A note on CPU figures: VPS listings often quote a boost clock ("4 x 3.6 GHz") while elsewhere
+describing a smaller guaranteed share ("4 x 2000 MHz"). Real throughput lands between the two.
+Everything in §7 was measured on four cores at roughly 2.9 GHz, so treat those numbers as the
+pessimistic end - a server that genuinely sustains 3.6 GHz will be about 20-25% faster, and one
+throttled to 2 GHz about 25% slower (20 students in 30 s instead of 28 s). Both are fine.
 
 **Which Ubuntu?** Use **24.04 LTS**. The host OS barely matters here - the application, Python,
 and every library it needs live inside containers, so the host only provides Docker, swap and a
@@ -205,7 +211,8 @@ submission**, and it uses all four cores. So the app deliberately runs only a fe
 time (`MAX_CONCURRENT_ANALYSES=3`), queues the rest (`MAX_QUEUED_ANALYSES=60`), and answers
 `503` with a `Retry-After` header once the queue is full, rather than letting everything pile up.
 
-Measured in a container capped to exactly this hardware:
+Measured in a container capped to four cores and 6.5 GB (see `docker-compose.prodsim.yml`),
+on a host whose cores run at ~2.9 GHz under sustained load:
 
 | Students pressing Submit at the same instant | Result | App memory peak |
 |---|---|---|
@@ -261,7 +268,10 @@ The neural network runs single-threaded per analysis by default, which is correc
 | `MAX_CONCURRENT_ANALYSES=5`, `TORCH_NUM_THREADS=1` | 27.7 s | - |
 | **`MAX_CONCURRENT_ANALYSES=3`, `TORCH_NUM_THREADS=2`** | **26.0 s** | **~2.2 s** |
 
-So on 6 cores, put `TORCH_NUM_THREADS=2` in `.env` and leave the concurrency at 3. The everyday
+**On four cores leave `TORCH_NUM_THREADS` at its default of 1** - three concurrent analyses
+already fill them, and adding threads only makes them fight each other. The table above applies
+only once there are six cores: then put `TORCH_NUM_THREADS=2` in `.env` and leave concurrency
+at 3. The everyday
 case - one student pressing Submit with nobody else waiting - is what improves most, and that is
 the wait students actually notice. Keep
 `MAX_CONCURRENT_ANALYSES x TORCH_NUM_THREADS` at or below the core count.
