@@ -55,8 +55,14 @@ const GrammarDiffView = ({
 
   return (
     <Box>
-      <Paper variant="outlined" sx={{ p: 2, pt: suggestionsAboveSpan ? 4 : 2, backgroundColor: '#fff' }}>
-        <Typography variant="body1" component="div" sx={{ lineHeight: suggestionsAboveSpan ? 3 : 2 }}>
+      <Paper variant="outlined" sx={{ p: 2, backgroundColor: '#fff' }}>
+        {/* The suggestions are in flow, so each line is already tall enough to hold them; the
+            extra line-height is spacing BETWEEN wrapped lines, which otherwise read as clutter. */}
+        <Typography
+          variant="body1"
+          component="div"
+          sx={{ lineHeight: suggestionsAboveSpan ? 2.6 : 2 }}
+        >
           {segments.map((seg, i) => {
             if (seg.type === 'text') {
               return <React.Fragment key={i}>{seg.text}</React.Fragment>;
@@ -80,7 +86,7 @@ const GrammarDiffView = ({
                   borderRadius: '3px',
                   padding: isInsertion ? '0 2px' : '0 3px',
                   margin: '0 1px',
-                  cursor: suggestionsAboveSpan ? 'default' : 'help'
+                  cursor: 'help'
                 }}
               >
                 {isInsertion ? '‸' : seg.edit.original_text}
@@ -93,23 +99,38 @@ const GrammarDiffView = ({
               // "this goes away" without having to be read.
               const isDeletion = !seg.edit.corrected_text;
               return (
-                <Box key={i} component="span" sx={{ position: 'relative', display: 'inline-block' }}>
+                // The suggestion sits in normal flow ABOVE the word, inside an inline-block, so
+                // the wrapper is as wide as whichever of the two is wider. Absolute positioning
+                // was the obvious approach and the wrong one: the label took up no space, so a
+                // correction longer than the word it replaces overlapped the next suggestion and
+                // the line above. In flow, neighbouring spans simply push each other apart, and
+                // a taller line box makes room automatically when the text wraps.
+                // An inline-block takes its baseline from its LAST line box, which is the word -
+                // so the sentence still sits on one baseline despite the label above it.
+                <Box
+                  key={i}
+                  component="span"
+                  sx={{
+                    display: 'inline-block',
+                    verticalAlign: 'baseline',
+                    textAlign: 'center',
+                    mx: '2px'
+                  }}
+                >
                   <Box
                     component="span"
                     sx={{
-                      position: 'absolute',
-                      top: '-1.5em',
-                      left: '50%',
-                      transform: 'translateX(-50%)',
+                      display: 'block',
                       whiteSpace: 'nowrap',
                       fontSize: '0.72rem',
                       fontWeight: 700,
+                      lineHeight: 1.6,
+                      mb: '2px',
                       color: '#2e7d32',
                       backgroundColor: '#e8f5e9',
                       border: '1px solid #a5d6a7',
                       borderRadius: '3px',
-                      padding: '0 4px',
-                      lineHeight: 1.5,
+                      px: '4px',
                       // Struck through in a neutral grey rather than red: red spans were
                       // explicitly too aggressive for practice mode, and the strikethrough
                       // already carries the meaning on its own.
@@ -123,7 +144,9 @@ const GrammarDiffView = ({
                   >
                     {isDeletion ? seg.edit.original_text : seg.edit.corrected_text}
                   </Box>
-                  {spanBox}
+                  {/* The correction is already visible above; the tooltip still names the
+                      ERRANT type (R:VERB:SVA and so on), which would otherwise be lost. */}
+                  <Tooltip title={label} arrow>{spanBox}</Tooltip>
                 </Box>
               );
             }

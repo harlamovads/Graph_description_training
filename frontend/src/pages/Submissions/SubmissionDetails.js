@@ -199,6 +199,7 @@ const SubmissionDetails = () => {
                   original={sentence.original}
                   corrected={sentence.teacher_corrected || sentence.corrected}
                   edits={sentence.errant_edits || []}
+                  suggestionsAboveSpan
                 />
                 <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
                   {sentence.teacher_corrected && (

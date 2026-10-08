@@ -260,6 +260,7 @@ const SubmissionReview = () => {
                   corrected={sentence.teacher_corrected || sentence.corrected}
                   edits={sentence.errant_edits || []}
                   showCorrected={false}
+                  suggestionsAboveSpan
                 />
                 <Typography variant="subtitle2" sx={{ mt: 2 }} gutterBottom>
                   {alreadyReviewed ? 'Correction:' : 'Correction (edit if the NN got it wrong):'}
