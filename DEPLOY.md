@@ -52,7 +52,11 @@ fails with a 404:
 ```bash
 # as root
 apt update && apt upgrade -y
-apt install -y ca-certificates curl git
+# git-lfs is NOT optional: backend/static/index.html and friends are stored in Git LFS
+# (see .gitattributes). Cloning without it yields pointer stubs, and the site then serves the
+# literal text "version https://git-lfs.github.com/spec/v1 ..." instead of the application.
+apt install -y ca-certificates curl git git-lfs
+git lfs install --system
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
 chmod a+r /etc/apt/keyrings/docker.asc
@@ -82,9 +86,30 @@ ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw enable
 
 ```bash
 cd /opt
-git clone <your-repo-url> language_learning_app
+# The server runs the RELEASE branch, not main. A plain `git clone` checks out the repo's
+# default branch, which is why cloning without -b lands you on main's older code.
+git clone -b <release-branch> <your-repo-url> language_learning_app
 cd language_learning_app
+git branch --show-current && git log -1 --oneline    # confirm you are on the release branch
+git lfs pull                                        # fetch the real LFS files
+head -c 40 backend/static/index.html; echo          # must start with <!doctype html>
 ```
+
+That last check is the one people skip. If it prints `version https://git-lfs.github.com/spec/v1`
+instead, git-lfs was missing when you cloned: install it, run `git lfs pull`, and rebuild the
+image — `COPY . .` in the Dockerfile means a stub gets baked in and surviving rebuilds.
+
+If you already cloned and ended up on main, switch in place rather than re-cloning:
+
+```bash
+cd /opt/language_learning_app
+git fetch origin
+git checkout <release-branch>
+git log -1 --oneline
+```
+
+(If that reports the branch doesn't exist, the clone was made with `--single-branch`. Run
+`git remote set-branches origin '*' && git fetch origin` first, then check out again.)
 
 Create `.env` in this directory. **The stack refuses to start without the first two** — that is
 deliberate, so a real deployment can never silently run on a placeholder key that is committed
@@ -139,15 +164,42 @@ attached to that teacher.
 Point an A record at the server first — certbot proves you own the domain over port 80, which is
 already wired up (`/.well-known/acme-challenge/` is served from the `certbot_www` volume).
 
+First check the prerequisites, because certbot fails confusingly without them and
+Let's Encrypt rate-limits failures (5 per hostname per hour):
+
 ```bash
-docker compose run --rm --entrypoint "" \
+dig +short your.domain            # must print THIS server's public IP
+curl -4 -s ifconfig.me; echo      # ...this one
+curl -s -o /dev/null -w '%{http_code}\n' http://your.domain/health   # 200, from outside
+```
+
+Certbot runs as a one-off container (`docker run`, not `docker compose run` — there is no
+certbot service in the compose file). Do a **dry run against the staging server first**: it
+exercises the whole challenge without consuming your weekly certificate quota.
+
+```bash
+docker run --rm \
   -v language_learning_app_certbot_www:/var/www/certbot \
   -v language_learning_app_certbot_conf:/etc/letsencrypt \
   certbot/certbot certonly --webroot -w /var/www/certbot \
-  -d your.domain --email you@example.com --agree-tos --no-eff-email
+  -d your.domain \
+  --email you@example.com --agree-tos --no-eff-email --dry-run
 ```
 
-Then in `docker/nginx.conf`: uncomment the 443 server block, replace `your.domain` in it (three
+Pass `-d` **only for names that already resolve to this server**. Adding `-d www.your.domain`
+without a matching A record fails the entire request, not just that name. A subdomain
+deployment (`app.example.com`) normally needs just the one `-d`.
+
+When that reports "The dry run was successful", run it again **without `--dry-run`** to get the
+real certificate.
+
+Note that **no nginx change is needed before this point**: the port-80 server block uses
+`server_name _;`, a catch-all that already answers for your domain, and it already serves the
+ACME challenge path. Do NOT uncomment the 443 block before the certificate exists - nginx
+refuses to start when `ssl_certificate` points at a missing file, which would take down port 80
+and leave certbot unable to validate at all.
+
+Once the certificate is issued, in `docker/nginx.conf`: uncomment the 443 server block, replace `your.domain` in it (three
 places), and add a redirect from 80 to 443. Uncomment `- "443:443"` in `docker-compose.yml`, set
 `CORS_ORIGINS=https://your.domain` in `.env`, and `docker compose up -d`.
 
@@ -157,19 +209,22 @@ once a browser has seen HSTS it refuses to load the site over HTTP, including to
 Renewal, as a weekly root cron entry:
 
 ```
-0 3 * * 1 cd /opt/language_learning_app && docker compose run --rm --entrypoint "" -v language_learning_app_certbot_www:/var/www/certbot -v language_learning_app_certbot_conf:/etc/letsencrypt certbot/certbot renew --webroot -w /var/www/certbot --quiet && docker compose exec nginx nginx -s reload
+0 3 * * 1 cd /opt/language_learning_app && docker run --rm -v language_learning_app_certbot_www:/var/www/certbot -v language_learning_app_certbot_conf:/etc/letsencrypt certbot/certbot renew --webroot -w /var/www/certbot --quiet && docker compose exec nginx nginx -s reload
 ```
 
 ## 6. Updating, and backups
 
 ```bash
 cd /opt/language_learning_app
-git pull
+git pull                      # pulls the release branch this clone tracks
+git branch --show-current     # sanity check: never deploy from main by accident
 docker compose up -d --build
 ```
 
 The server needs no Node: the built frontend (`backend/static/`) is committed to the repository,
-so `git pull` brings it with everything else. Rebuilding it is a step on the **developer's**
+so `git pull` brings it with everything else. **This is the thing to check when merging into the
+release branch**: if `backend/static/` on that branch is stale, the server runs new backend code
+behind an old interface, which looks like features silently not existing. Rebuilding it is a step on the **developer's**
 machine, before committing:
 
 ```bash
@@ -296,6 +351,7 @@ Tuning, all via `.env` (see `.env.template` for the full list):
 | Task images stopped appearing | They live in the `app_uploads` volume. Check `UPLOAD_FOLDER=/app/uploads` is still set in `docker-compose.yml` — without it the app writes into the container's own filesystem and the images vanish on the next rebuild. |
 | App restarting in a loop, `Killed` in the logs | Out of memory. Confirm swap exists (§2) and that nothing else large runs on the box. The app's limit is 6.5 GB of the 8 GB on purpose, so that Postgres and the OS keep theirs. |
 | A student forgot their password | Their teacher resets it from the statistics page and hands them a one-time temporary password; the student sets their own from the account menu. There is no admin backdoor by design. |
+| The site shows `version https://git-lfs.github.com/spec/v1 oid sha256:...` and nothing else | `backend/static/index.html` is a Git LFS pointer, not the real file — git-lfs was missing when the repo was cloned. `apt install -y git-lfs && git lfs install && git lfs pull`, verify with `head -c 40 backend/static/index.html`, then `docker compose up -d --build` (the old image has the stub baked in). |
 | Migrations failed on start | `docker compose logs language-learning-app`, fix the cause, then `docker compose exec language-learning-app flask db upgrade`. Never edit the database by hand to "get past" a migration. |
 
 ## 9. Sanity checks you can re-run on the server
